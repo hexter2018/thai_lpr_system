@@ -78,10 +78,13 @@ class LPRProcessor:
         # PaddleOCR language: "thai" (Thai support). Use GPU.
         # If you also need English, consider lang="th" vs "thai" depending on your PaddleOCR version.
         return PaddleOCR(
-            lang="thai",
+            lang="th",
             use_angle_cls=True,
             use_gpu=True,
             show_log=False,
+            det_model_dir=os.path.join(self.model_dir, "paddle_ocr_models/det"),
+            rec_model_dir=os.path.join(self.model_dir, "paddle_ocr_models/rec"),
+            cls_model_dir=os.path.join(self.model_dir, "paddle_ocr_models/cls"),
         )
 
     def recognize(self, image_bgr: np.ndarray) -> Dict[str, Any]:

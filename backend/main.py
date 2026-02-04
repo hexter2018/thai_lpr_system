@@ -19,7 +19,7 @@ from api_queue import router as queue_router
 from fastapi.middleware.cors import CORSMiddleware
 
 
-STORAGE_BASE = os.getenv("STORAGE_BASE", "./storage")  # store originals + crops here
+STORAGE_BASE = os.getenv("STORAGE_BASE", "../storage")  # store originals + crops here
 
 app = FastAPI(title="Thai LPR System", version="1.0.0")
 
@@ -33,7 +33,7 @@ app.add_middleware(
 app.include_router(queue_router)
 
 # Load once (GPU model + OCR)
-lpr = LPRProcessor(model_dir=os.getenv("MODEL_DIR", "./models"))
+lpr = LPRProcessor(model_dir=os.getenv("MODEL_DIR", "../models"))
 
 
 def _decode_upload_to_bgr(file_bytes: bytes) -> np.ndarray:
