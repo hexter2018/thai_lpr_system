@@ -8,6 +8,7 @@ server: {
 proxy: {
 '/api': 'http://localhost:8000',
 '/static': 'http://localhost:8000',
-}
+},
+port: 5173,
 }
 });

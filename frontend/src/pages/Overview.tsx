@@ -26,7 +26,7 @@ export default function Overview() {
       {err && (
         <EmptyState
           title="Failed to load stats"
-          description={err}
+          description={`${err} (Try: GET /api/health to check backend connectivity)`}
           action={
             <button
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"

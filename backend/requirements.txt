@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy[asyncio]
+asyncpg
+pydantic
+python-multipart
+aiofiles
+opencv-python
+paddleocr
+thefuzz
