@@ -1,0 +1,62 @@
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
+export async function getKPI() {
+  const res = await fetch(`${API_BASE}/api/dashboard/kpi`);
+  if (!res.ok) throw new Error("failed to load KPI");
+  return res.json();
+}
+
+export async function uploadSingle(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error("upload failed");
+  return res.json();
+}
+
+export async function uploadBatch(files) {
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  const res = await fetch(`${API_BASE}/api/upload/batch`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error("batch upload failed");
+  return res.json();
+}
+
+export async function listPending(limit=100) {
+  const res = await fetch(`${API_BASE}/api/reads/pending?limit=${limit}`);
+  if (!res.ok) throw new Error("failed to load queue");
+  return res.json();
+}
+
+export async function verifyRead(readId, payload) {
+  const res = await fetch(`${API_BASE}/api/reads/${readId}/verify`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error("verify failed");
+  return res.json();
+}
+
+export async function searchMaster(q="") {
+  const res = await fetch(`${API_BASE}/api/master?q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error("failed to load master");
+  return res.json();
+}
+
+export async function upsertMaster(payload) {
+  const res = await fetch(`${API_BASE}/api/master`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error("save master failed");
+  return res.json();
+}
+
+// image url already includes /api/images?path=...
+export function absImageUrl(pathOrUrl) {
+  if (!pathOrUrl) return "";
+  if (pathOrUrl.startsWith("http")) return pathOrUrl;
+  return `${API_BASE}${pathOrUrl}`;
+}

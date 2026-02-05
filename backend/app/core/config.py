@@ -1,0 +1,17 @@
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str = "postgresql+psycopg2://alpr:alpr@localhost:5432/alpr"
+    redis_url: str = "redis://localhost:6379/0"
+    storage_dir: str = "./storage"
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_origins_list(self):
+        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+
+    class Config:
+        env_prefix = ""
+        case_sensitive = False
+
+settings = Settings()

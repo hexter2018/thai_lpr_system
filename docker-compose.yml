@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: alpr
+      POSTGRES_PASSWORD: alpr
+      POSTGRES_DB: alpr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      CORS_ORIGINS: http://localhost:5173
+    volumes:
+      - ./storage:/storage
+      - ./models:/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build:
+      context: ./worker
+    # ✅ เปิด GPU ให้ container
+    gpus: all
+    environment:
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      CUDA_VISIBLE_DEVICES: "0"
+      ULTRALYTICS_AUTOINSTALL: "false"
+      YOLO_VERBOSE: "false"
+      # ✅ TensorRT engine
+      MODEL_PATH: /models/best.pt
+
+      # Detector
+      DETECTOR_CONF: "0.35"
+      TRT_INPUT_W: "640"
+      TRT_INPUT_H: "640"
+      TRT_CONF_THRES: "0.35"
+      TRT_IOU_THRES: "0.45"
+      TRT_CLASS_ID: "0"
+
+      MASTER_CONF_THRESHOLD: "0.95"
+    volumes:
+      - ./storage:/storage
+      - ./models:/models
+    depends_on:
+      - postgres
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
