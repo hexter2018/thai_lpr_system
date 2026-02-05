@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
-import logging
 from dataclasses import dataclass
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import cv2
-from rapidfuzz import process, fuzz
+import numpy as np
+
+from .provinces import best_province_from_text, normalize_province
 
 log = logging.getLogger(__name__)
 
@@ -20,229 +22,218 @@ class OCRResult:
     raw: Dict[str, Any]
 
 
-THAI_PROVINCES = [
-    "กรุงเทพมหานคร","กระบี่","กาญจนบุรี","กาฬสินธุ์","กำแพงเพชร","ขอนแก่น","จันทบุรี","ฉะเชิงเทรา","ชลบุรี","ชัยนาท",
-    "ชัยภูมิ","ชุมพร","เชียงราย","เชียงใหม่","ตรัง","ตราด","ตาก","นครนายก","นครปฐม","นครพนม","นครราชสีมา","นครศรีธรรมราช",
-    "นครสวรรค์","นนทบุรี","นราธิวาส","น่าน","บึงกาฬ","บุรีรัมย์","ปทุมธานี","ประจวบคีรีขันธ์","ปราจีนบุรี","ปัตตานี","พระนครศรีอยุธยา",
-    "พะเยา","พังงา","พัทลุง","พิจิตร","พิษณุโลก","เพชรบุรี","เพชรบูรณ์","แพร่","ภูเก็ต","มหาสารคาม","มุกดาหาร","แม่ฮ่องสอน",
-    "ยะลา","ยโสธร","ร้อยเอ็ด","ระนอง","ระยอง","ราชบุรี","ลพบุรี","ลำปาง","ลำพูน","เลย","ศรีสะเกษ","สกลนคร","สงขลา","สตูล",
-    "สมุทรปราการ","สมุทรสงคราม","สมุทรสาคร","สระแก้ว","สระบุรี","สิงห์บุรี","สุโขทัย","สุพรรณบุรี","สุราษฎร์ธานี","สุรินทร์",
-    "หนองคาย","หนองบัวลำภู","อ่างทอง","อำนาจเจริญ","อุดรธานี","อุตรดิตถ์","อุทัยธานี","อุบลราชธานี"
-]
-
-_THAI_ENG_MAP = str.maketrans({
-    "O": "0", "o": "0",
-    "I": "1", "l": "1", "|": "1",
-    "Z": "2",
-    "S": "5",
-    "B": "8",
-    "G": "6",
-    "D": "0",
-    "Q": "0",
-})
-
-_THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+_THAI_TO_ARABIC = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+_CHAR_FIX_MAP = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "|": "1", "S": "5", "B": "8"})
 
 
-def _normalize_plate_text(s: str) -> str:
-    s = (s or "").strip().replace(" ", "").replace("-", "")
-    s = s.translate(_THAI_DIGIT_MAP)
-    s = re.sub(r"[^0-9A-Za-zก-๙]", "", s)
-    if not s:
-        return ""
-
+def normalize_plate_text(text: str) -> str:
+    value = (text or "").strip().translate(_THAI_TO_ARABIC)
+    value = re.sub(r"[\s\-_.]", "", value)
+    value = re.sub(r"[^0-9A-Za-zก-๙]", "", value)
     chars: List[str] = []
-    for ch in s:
-        if ch.isdigit():
+    for ch in value:
+        if re.match(r"[ก-๙0-9]", ch):
             chars.append(ch)
-            continue
-        if re.match(r"[ก-๙]", ch):
-            chars.append(ch)
-            continue
-        chars.append(ch.translate(_THAI_ENG_MAP))
-
-    normalized = "".join(chars)
-    normalized = re.sub(r"[^0-9ก-๙]", "", normalized)
-    return normalized
+        else:
+            chars.append(ch.translate(_CHAR_FIX_MAP))
+    value = "".join(chars)
+    return re.sub(r"[^0-9ก-๙]", "", value)
 
 
-def _plate_candidate_score(cand: str) -> float:
-    if not cand:
+def plate_structure_score(text: str) -> float:
+    candidate = normalize_plate_text(text)
+    if not candidate:
         return 0.0
 
-    thai_letters = len(re.findall(r"[ก-๙]", cand))
-    digits = len(re.findall(r"[0-9]", cand))
-    total = len(cand)
+    thai_count = len(re.findall(r"[ก-๙]", candidate))
+    digit_count = len(re.findall(r"[0-9]", candidate))
+    length = len(candidate)
 
     score = 0.0
-    if 4 <= total <= 8:
-        score += 0.35
-    if 1 <= thai_letters <= 3:
-        score += 0.30
-    if 1 <= digits <= 4:
+    if 3 <= length <= 8:
         score += 0.25
-    if re.match(r"^[ก-๙]{1,3}[0-9]{1,4}$", cand):
-        score += 0.20
-
-    return min(score, 1.0)
-
-
-def _best_province_guess(text: str) -> str:
-    if not text:
-        return ""
-
-    cleaned = re.sub(r"\s+", "", text)
-    if not cleaned:
-        return ""
-
-    for p in THAI_PROVINCES:
-        if p in cleaned:
-            return p
-
-    match = process.extractOne(cleaned, THAI_PROVINCES, scorer=fuzz.WRatio)
-    if match and match[1] >= 78:
-        return str(match[0])
-    return ""
+    if 1 <= thai_count <= 3:
+        score += 0.3
+    if 1 <= digit_count <= 4:
+        score += 0.3
+    if re.match(r"^[ก-๙]{1,3}[0-9]{1,4}$", candidate):
+        score += 0.2
+    return min(1.0, score)
 
 
 class PlateOCR:
-    """OCR wrapper: read(crop_path) -> OCRResult."""
+    """OCR wrapper with EasyOCR-first pipeline and robust province extraction."""
 
     def __init__(self):
-        self.backend = os.getenv("OCR_BACKEND", "tesseract").lower()
+        self.backend = os.getenv("OCR_BACKEND", "easyocr").lower()
+        self.easyocr_reader = None
+        self.easyocr_thai_reader = None
 
-        if self.backend == "tesseract":
+        if self.backend == "easyocr":
             try:
-                import pytesseract  # type: ignore
-                self.pytesseract = pytesseract
-                self.lang = os.getenv("TESS_LANG", "tha+eng")
-            except Exception as e:
-                log.warning("Tesseract backend requested but not available: %s. Falling back to none.", e)
+                import easyocr  # type: ignore
+
+                self.easyocr_reader = easyocr.Reader(["th", "en"], gpu=False, verbose=False)
+                self.easyocr_thai_reader = easyocr.Reader(["th"], gpu=False, verbose=False)
+            except Exception as exc:
+                log.warning("EasyOCR unavailable: %s", exc)
                 self.backend = "none"
 
     def read(self, crop_path: str) -> OCRResult:
-        if self.backend == "tesseract":
-            return self._read_tesseract(crop_path)
+        return self.read_plate(crop_path)
 
-        return OCRResult(
-            plate_text="",
-            province="",
-            conf=0.0,
-            raw={"backend": self.backend, "note": "OCR backend not configured"},
-        )
+    def read_plate(self, crop_path: str) -> OCRResult:
+        if self.backend == "easyocr":
+            return self._read_easyocr(crop_path)
 
-    def _build_variants(self, gray):
-        gray = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-        variants = []
-        variants.append(("gray", gray))
+        return OCRResult(plate_text="", province="", conf=0.0, raw={"backend": self.backend, "note": "OCR backend unavailable"})
 
-        blur = cv2.bilateralFilter(gray, 7, 60, 60)
-        variants.append(("bilateral", blur))
+    def _ocr_easyocr(
+        self,
+        image: np.ndarray,
+        reader,
+        allowlist: Optional[str] = None,
+        detail: int = 1,
+    ) -> Sequence[Any]:
+        kwargs = {
+            "detail": detail,
+            "paragraph": False,
+            "decoder": "greedy",
+            "contrast_ths": 0.05,
+            "adjust_contrast": 0.9,
+            "text_threshold": 0.5,
+            "low_text": 0.3,
+            "link_threshold": 0.3,
+        }
+        if allowlist:
+            kwargs["allowlist"] = allowlist
+        return reader.readtext(image, **kwargs)
 
-        thr_otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        variants.append(("otsu", thr_otsu))
+    def _preprocess_plate_variants(self, bgr: np.ndarray) -> List[Tuple[str, np.ndarray]]:
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        up = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
 
-        thr_inv = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-        variants.append(("otsu_inv", thr_inv))
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)).apply(up)
+        sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
+        bilateral = cv2.bilateralFilter(sharpen, 5, 70, 70)
 
-        ada = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                    cv2.THRESH_BINARY, 31, 5)
-        variants.append(("adaptive", ada))
+        otsu = cv2.threshold(bilateral, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        adaptive = cv2.adaptiveThreshold(bilateral, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 35, 5)
+        inv = cv2.bitwise_not(otsu)
 
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-        morph = cv2.morphologyEx(thr_otsu, cv2.MORPH_OPEN, kernel)
-        variants.append(("morph_open", morph))
+        return [
+            ("gray_up", up),
+            ("clahe_sharp", sharpen),
+            ("otsu", otsu),
+            ("adaptive", adaptive),
+            ("otsu_inv", inv),
+        ]
 
-        return variants
+    def _province_roi_variants(self, bgr: np.ndarray) -> List[Tuple[str, np.ndarray]]:
+        h = bgr.shape[0]
+        y0 = int(h * 0.55)
+        roi = bgr[y0:, :]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        up = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
 
-    def _ocr_with_conf(self, img, psm: int):
-        config = os.getenv(
-            "TESS_CONFIG",
-            f"--oem 3 --psm {psm} -c preserve_interword_spaces=0"
-        )
-        text = self.pytesseract.image_to_string(img, lang=self.lang, config=config)
-        data = self.pytesseract.image_to_data(
-            img,
-            lang=self.lang,
-            config=config,
-            output_type=self.pytesseract.Output.DICT,
-        )
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(up)
+        sharp = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 6, -1], [0, -1, 0]], dtype=np.float32))
+        adaptive = cv2.adaptiveThreshold(sharp, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 41, 7)
+        otsu = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
 
-        vals = []
-        for raw_conf in data.get("conf", []):
-            try:
-                c = float(raw_conf)
-            except (TypeError, ValueError):
-                continue
-            if c >= 0:
-                vals.append(c)
-        mean_conf = (sum(vals) / len(vals)) / 100.0 if vals else 0.0
-        return text, float(max(0.0, min(mean_conf, 1.0)))
+        return [
+            ("province_up", up),
+            ("province_clahe_sharp", sharp),
+            ("province_adaptive", adaptive),
+            ("province_otsu", otsu),
+        ]
 
-    def _extract_plate_from_text(self, text: str) -> str:
-        raw = re.sub(r"[\s\-_.]", "", text or "")
-        candidates = re.findall(r"[0-9A-Za-zก-๙]{4,10}", raw)
-        if not candidates:
-            candidates = [raw]
+    def _extract_best_plate(self, lines: Sequence[Tuple[str, float]]) -> Tuple[str, float]:
+        best_plate = ""
+        best_score = 0.0
+        for text, text_conf in lines:
+            tokens = re.findall(r"[0-9A-Za-zก-๙]{3,10}", text or "")
+            if not tokens:
+                tokens = [text]
+            for token in tokens:
+                normalized = normalize_plate_text(token)
+                structure = plate_structure_score(normalized)
+                score = (0.7 * structure) + (0.3 * text_conf)
+                if score > best_score:
+                    best_plate = normalized
+                    best_score = score
+        return best_plate, best_score
 
-        best = ""
-        best_score = -1.0
-        for c in candidates:
-            n = _normalize_plate_text(c)
-            score = _plate_candidate_score(n)
-            if score > best_score:
-                best = n
+    def _best_province_from_lines(self, lines: Sequence[Tuple[str, float]]) -> Tuple[str, float]:
+        best_name = ""
+        best_score = 0.0
+        for text, line_conf in lines:
+            province, prov_conf = best_province_from_text(text)
+            score = (0.6 * prov_conf) + (0.4 * line_conf)
+            if province and score > best_score:
+                best_name = province
                 best_score = score
-        return best
+        return normalize_province(best_name), best_score
 
-    def _read_tesseract(self, crop_path: str) -> OCRResult:
-        img = cv2.imread(crop_path)
-        if img is None:
+    def _read_easyocr(self, crop_path: str) -> OCRResult:
+        bgr = cv2.imread(crop_path)
+        if bgr is None:
             raise RuntimeError(f"Cannot read crop: {crop_path}")
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        variants = self._build_variants(gray)
+        plate_variants = self._preprocess_plate_variants(bgr)
+        plate_lines: List[Tuple[str, float]] = []
+        raw_plate_reads: List[Dict[str, Any]] = []
+        for name, variant in plate_variants:
+            lines = self._ocr_easyocr(variant, self.easyocr_reader, detail=1)
+            for item in lines:
+                _, text, conf = item
+                conf_f = float(conf or 0.0)
+                plate_lines.append((str(text), conf_f))
+                raw_plate_reads.append({"variant": name, "text": text, "conf": conf_f})
 
-        best = {
-            "plate": "",
-            "province": "",
-            "conf": 0.0,
-            "raw_text": "",
-            "variant": "",
-            "psm": 0,
-        }
+        best_plate, plate_score = self._extract_best_plate(plate_lines)
+        line_province, line_province_score = self._best_province_from_lines(plate_lines)
 
-        for name, var_img in variants:
-            for psm in (6, 7, 8, 11, 13):
-                txt, tconf = self._ocr_with_conf(var_img, psm)
-                plate = self._extract_plate_from_text(txt)
-                province = _best_province_guess(txt)
+        roi_variants = self._province_roi_variants(bgr)
+        thai_allowlist = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮ"
+        roi_best_province = ""
+        roi_best_score = 0.0
+        roi_raw: List[Dict[str, Any]] = []
 
-                structural = _plate_candidate_score(plate)
-                score = (0.7 * structural) + (0.3 * tconf)
-                if province:
-                    score += 0.06
-                if re.match(r"^[ก-๙]{1,3}[0-9]{1,4}$", plate):
-                    score += 0.05
+        for name, variant in roi_variants:
+            lines = self._ocr_easyocr(variant, self.easyocr_thai_reader, allowlist=thai_allowlist, detail=1)
+            for item in lines:
+                _, text, conf = item
+                conf_f = float(conf or 0.0)
+                province, prov_conf = best_province_from_text(str(text))
+                score = (0.7 * prov_conf) + (0.3 * conf_f)
+                roi_raw.append({"variant": name, "text": text, "conf": conf_f, "province": province, "score": score})
+                if province and score > roi_best_score:
+                    roi_best_province = province
+                    roi_best_score = score
 
-                if score > best["conf"]:
-                    best = {
-                        "plate": plate,
-                        "province": province,
-                        "conf": float(min(score, 1.0)),
-                        "raw_text": txt,
-                        "variant": name,
-                        "psm": psm,
-                    }
+        province = roi_best_province if roi_best_province else line_province
+        province_score = roi_best_score if roi_best_province else line_province_score
+
+        total_conf = min(1.0, (0.72 * plate_score) + (0.28 * province_score))
+        if province:
+            total_conf = min(1.0, total_conf + 0.05)
 
         return OCRResult(
-            plate_text=best["plate"],
-            province=best["province"],
-            conf=float(best["conf"]),
+            plate_text=best_plate,
+            province=normalize_province(province),
+            conf=float(total_conf),
             raw={
-                "backend": "tesseract",
-                "raw_text": best["raw_text"],
-                "variant": best["variant"],
-                "psm": best["psm"],
+                "backend": "easyocr",
+                "plate_reads": raw_plate_reads[:30],
+                "province_roi_reads": roi_raw[:40],
+                "selected": {
+                    "plate": best_plate,
+                    "province": province,
+                    "plate_score": plate_score,
+                    "line_province_score": line_province_score,
+                    "roi_province_score": roi_best_score,
+                    "province_source": "roi" if roi_best_province else "line",
+                },
             },
         )

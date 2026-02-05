@@ -2,56 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
-  Minimal “modern blue” theme helpers.
-  Tailwind does most styling; these are just nice defaults.
-*/
-
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900;
+    @apply bg-slate-950 text-slate-100;
+  }
+
+  .app-bg {
+    background: linear-gradient(150deg, #020617 0%, #0f172a 45%, #111827 100%);
   }
 
   :focus-visible {
     outline: none;
-    @apply ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-50;
+    @apply ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-900;
   }
 }
 
 @layer components {
+  .glass {
+    @apply border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_10px_40px_rgba(2,6,23,0.45)];
+  }
+
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition;
   }
+
   .btn-primary {
-    @apply btn bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800;
+    @apply btn border border-blue-300/20 bg-blue-500/80 text-white hover:bg-blue-500;
   }
-  .btn-ghost {
-    @apply btn bg-white text-slate-700 hover:bg-slate-100 border border-slate-200;
+
+  .btn-secondary {
+    @apply btn border border-white/20 bg-white/10 text-slate-100 hover:bg-white/15;
   }
-  .card {
-    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
-  }
-  .card-h {
-    @apply px-4 py-3 border-b border-slate-200 flex items-center justify-between;
-  }
-  .card-b {
-    @apply p-4;
-  }
+
   .input {
-    @apply mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm
-           focus:border-blue-400 focus:ring-2 focus:ring-blue-200;
+    @apply mt-1 w-full rounded-xl border border-white/15 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400;
   }
-  .badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium;
-  }
+
   .badge-blue {
-    @apply badge bg-blue-50 text-blue-700 border border-blue-200;
-  }
-  .badge-slate {
-    @apply badge bg-slate-50 text-slate-700 border border-slate-200;
+    @apply inline-flex items-center rounded-full border border-blue-300/30 bg-blue-500/15 px-2.5 py-1 text-xs font-medium text-blue-100;
   }
 }
