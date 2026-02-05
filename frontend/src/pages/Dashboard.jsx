@@ -3,9 +3,9 @@ import { getKPI } from '../lib/api.js'
 
 function Card({title, value}) {
   return (
-    <div className="border rounded p-4">
-      <div className="text-xs text-gray-500">{title}</div>
-      <div className="text-2xl font-semibold">{value}</div>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs text-slate-500">{title}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">{value}</div>
     </div>
   )
 }
@@ -20,7 +20,12 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-3">Dashboard KPI</h1>
+      <div className="mb-4 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-slate-500">Overview KPI ของระบบ</p>
+        </div>
+      </div>
       {err && <div className="text-red-600 mb-3">{err}</div>}
       {!kpi && !err && <div>Loading...</div>}
       {kpi && (

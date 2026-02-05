@@ -35,33 +35,57 @@ export default function Upload() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold">Upload</h1>
+      <div>
+        <h1 className="text-xl font-semibold">Upload</h1>
+        <p className="text-sm text-slate-600 mt-1">อัปโหลดภาพเพื่อนำไปประมวลผล และไปตรวจผลที่หน้า Verification Queue</p>
+      </div>
 
-      {msg && <div className="p-3 border rounded bg-gray-50 text-sm">{msg}</div>}
+      {msg && (
+        <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-sm text-sm">
+          {msg}
+        </div>
+      )}
 
-      <section className="border rounded p-4">
+      <section className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
         <div className="font-semibold mb-2">Single Image</div>
-        <input type="file" accept="image/*" onChange={(e) => setSingle(e.target.files?.[0] || null)} />
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setSingle(e.target.files?.[0] || null)}
+          className="block w-full text-sm"
+        />
         <div className="mt-3">
-          <button disabled={busy || !single} onClick={onUploadSingle}
-            className="px-3 py-2 rounded bg-black text-white disabled:opacity-50">
+          <button
+            disabled={busy || !single}
+            onClick={onUploadSingle}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600"
+          >
             Upload single
           </button>
         </div>
       </section>
 
-      <section className="border rounded p-4">
+      <section className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
         <div className="font-semibold mb-2">Multiple Images</div>
-        <input type="file" accept="image/*" multiple onChange={(e) => setMulti(Array.from(e.target.files || []))} />
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => setMulti(Array.from(e.target.files || []))}
+          className="block w-full text-sm"
+        />
         <div className="mt-3">
-          <button disabled={busy || !multi.length} onClick={onUploadBatch}
-            className="px-3 py-2 rounded bg-black text-white disabled:opacity-50">
+          <button
+            disabled={busy || !multi.length}
+            onClick={onUploadBatch}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600"
+          >
             Upload batch ({multi.length})
           </button>
         </div>
       </section>
 
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-slate-600">
         After upload, the worker processes asynchronously. Go to <b>Verification Queue</b> to review results.
       </div>
     </div>
