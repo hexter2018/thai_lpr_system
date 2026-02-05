@@ -37,11 +37,16 @@ _THAI_ENG_MAP = str.maketrans({
     "S": "5",
     "B": "8",
     "G": "6",
+    "D": "0",
+    "Q": "0",
 })
+
+_THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 
 
 def _normalize_plate_text(s: str) -> str:
     s = (s or "").strip().replace(" ", "").replace("-", "")
+    s = s.translate(_THAI_DIGIT_MAP)
     s = re.sub(r"[^0-9A-Za-zก-๙]", "", s)
     if not s:
         return ""
@@ -208,14 +213,16 @@ class PlateOCR:
         }
 
         for name, var_img in variants:
-            for psm in (6, 7, 11):
+            for psm in (6, 7, 8, 11, 13):
                 txt, tconf = self._ocr_with_conf(var_img, psm)
                 plate = self._extract_plate_from_text(txt)
                 province = _best_province_guess(txt)
 
                 structural = _plate_candidate_score(plate)
-                score = (0.65 * structural) + (0.35 * tconf)
+                score = (0.7 * structural) + (0.3 * tconf)
                 if province:
+                    score += 0.06
+                if re.match(r"^[ก-๙]{1,3}[0-9]{1,4}$", plate):
                     score += 0.05
 
                 if score > best["conf"]:
