@@ -78,6 +78,7 @@ def norm_plate_text(s: str) -> str:
     if not s:
         return ""
     s = s.strip().upper()
+    s = s.translate(str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789"))
     s = re.sub(r"[\s\-\.]", "", s)  # remove space/dash/dot
     return s
 
@@ -171,34 +172,45 @@ def process_capture(capture_id: int, image_path: str):
         if conf >= MASTER_CONF_THRESHOLD and plate_text_norm:
             sql_upsert_master = text("""
                 INSERT INTO master_plates (
-                    plate_text,
+                    plate_text_norm,
+                    display_text,
                     province,
-                    best_confidence,
-                    last_seen_at,
-                    created_at,
-                    updated_at
+                    confidence,
+                    last_seen,
+                    count_seen,
+                    editable
                 )
                 VALUES (
-                    :plate_text,
+                    :plate_text_norm,
+                    :display_text,
                     :province,
-                    :best_confidence,
-                    :last_seen_at,
-                    :created_at,
-                    :updated_at
+                    :confidence,
+                    :last_seen,
+                    :count_seen,
+                    :editable
                 )
-                ON CONFLICT (plate_text, province)
+                ON CONFLICT (plate_text_norm)
                 DO UPDATE SET
-                    best_confidence = GREATEST(master_plates.best_confidence, EXCLUDED.best_confidence),
-                    last_seen_at = EXCLUDED.last_seen_at,
-                    updated_at = EXCLUDED.updated_at
+                    display_text = CASE
+                        WHEN master_plates.display_text = '' AND EXCLUDED.display_text <> '' THEN EXCLUDED.display_text
+                        ELSE master_plates.display_text
+                    END,
+                    province = CASE
+                        WHEN EXCLUDED.province <> '' THEN EXCLUDED.province
+                        ELSE master_plates.province
+                    END,
+                    confidence = GREATEST(master_plates.confidence, EXCLUDED.confidence),
+                    last_seen = EXCLUDED.last_seen,
+                    count_seen = master_plates.count_seen + 1
             """)
             db.execute(sql_upsert_master, {
-                "plate_text": plate_text_norm,
+                "plate_text_norm": plate_text_norm,
+                "display_text": (plate_text[:32] if plate_text else plate_text_norm),
                 "province": province,
-                "best_confidence": conf,
-                "last_seen_at": now_utc(),
-                "created_at": now_utc(),
-                "updated_at": now_utc(),
+                "confidence": conf,
+                "last_seen": now_utc(),
+                "count_seen": 1,
+                "editable": True,
             })
             db.commit()
 
