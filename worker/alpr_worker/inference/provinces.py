@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import Dict
+import unicodedata
+from typing import Dict, Tuple
 
 from rapidfuzz import fuzz, process
 
@@ -18,51 +19,91 @@ THAI_PROVINCES = [
 
 PROVINCE_ALIASES: Dict[str, str] = {
     "กทม": "กรุงเทพมหานคร",
-    "กทม.": "กรุงเทพมหานคร",
     "กรุงเทพ": "กรุงเทพมหานคร",
     "กรุงเทพฯ": "กรุงเทพมหานคร",
-    "กรุงเทพมหานคร.": "กรุงเทพมหานคร",
-    "bkk": "กรุงเทพมหานคร",
     "bangkok": "กรุงเทพมหานคร",
-    "phranakhonsiayutthaya": "พระนครศรีอยุธยา",
+    "bkk": "กรุงเทพมหานคร",
     "อยุธยา": "พระนครศรีอยุธยา",
-    "นครศรี": "นครศรีธรรมราช",
+    "พระนครศรี": "พระนครศรีอยุธยา",
     "โคราช": "นครราชสีมา",
+    "นครศรี": "นครศรีธรรมราช",
+    "พิดโลก": "พิษณุโลก",
+    "ชล": "ชลบุรี",
+    "นน": "นนทบุรี",
+    "สมุทรปราการ": "สมุทรปราการ",
     "chiangmai": "เชียงใหม่",
-    "chiang mai": "เชียงใหม่",
     "chiangrai": "เชียงราย",
-    "chiang rai": "เชียงราย",
+    "nakhonratchasima": "นครราชสีมา",
+    "ayutthaya": "พระนครศรีอยุธยา",
+}
+
+# OCR artifacts commonly seen in Thai province text.
+_EXTRA_REPLACEMENTS = {
+    "ฯ": "",
+    "ํ": "",
+    "่": "",
+    "้": "",
+    "๊": "",
+    "๋": "",
+    "์": "",
+    "ิ": "",
+    "ี": "",
+    "ึ": "",
+    "ื": "",
+    "ุ": "",
+    "ู": "",
 }
 
 
-def _clean_text(text: str) -> str:
-    txt = (text or "").strip().lower()
-    txt = re.sub(r"[\s\-_.]+", "", txt)
+def _aggressive_normalize(text: str) -> str:
+    txt = unicodedata.normalize("NFKC", (text or "").strip().lower())
+    for src, dst in _EXTRA_REPLACEMENTS.items():
+        txt = txt.replace(src, dst)
+    txt = "".join(ch for ch in txt if unicodedata.category(ch) != "Mn")
+    txt = re.sub(r"[\s\-_.:/\\|,;\[\](){}<>!?+*'\"`~]+", "", txt)
+    txt = re.sub(r"[^a-z0-9ก-๙]", "", txt)
     return txt
 
 
-def normalize_province(text: str, threshold: int = 70) -> str:
-    cleaned = _clean_text(text)
+_NORMALIZED_PROVINCES = {_aggressive_normalize(p): p for p in THAI_PROVINCES}
+_NORMALIZED_ALIASES = {_aggressive_normalize(k): v for k, v in PROVINCE_ALIASES.items()}
+
+
+def match_province(text: str, threshold: int = 62) -> Tuple[str, float]:
+    cleaned = _aggressive_normalize(text)
     if not cleaned:
-        return ""
+        return "", 0.0
 
-    if cleaned in PROVINCE_ALIASES:
-        return PROVINCE_ALIASES[cleaned]
+    if cleaned in _NORMALIZED_ALIASES:
+        return _NORMALIZED_ALIASES[cleaned], 100.0
+    if cleaned in _NORMALIZED_PROVINCES:
+        return _NORMALIZED_PROVINCES[cleaned], 100.0
 
-    direct = { _clean_text(p): p for p in THAI_PROVINCES }
-    if cleaned in direct:
-        return direct[cleaned]
+    # Containment helps with partially merged OCR tokens.
+    for n_name, province in _NORMALIZED_PROVINCES.items():
+        if cleaned in n_name or n_name in cleaned:
+            overlap = min(len(cleaned), len(n_name)) / max(len(cleaned), len(n_name))
+            return province, 75.0 + overlap * 20.0
 
-    for official in THAI_PROVINCES:
-        if _clean_text(official) in cleaned or cleaned in _clean_text(official):
-            return official
+    province_match = process.extractOne(cleaned, list(_NORMALIZED_PROVINCES.keys()), scorer=fuzz.WRatio)
+    alias_match = process.extractOne(cleaned, list(_NORMALIZED_ALIASES.keys()), scorer=fuzz.WRatio)
 
-    match = process.extractOne(cleaned, THAI_PROVINCES, scorer=fuzz.WRatio)
-    if match and match[1] >= threshold:
-        return str(match[0])
+    best_name = ""
+    best_score = 0.0
+    if province_match:
+        best_name = province_match[0]
+        best_score = float(province_match[1])
+    if alias_match and float(alias_match[1]) > best_score:
+        best_name = alias_match[0]
+        best_score = float(alias_match[1])
 
-    alias_match = process.extractOne(cleaned, list(PROVINCE_ALIASES.keys()), scorer=fuzz.WRatio)
-    if alias_match and alias_match[1] >= threshold:
-        return PROVINCE_ALIASES[str(alias_match[0])]
+    if best_score < threshold:
+        return "", best_score
 
-    return ""
+    if best_name in _NORMALIZED_ALIASES:
+        return _NORMALIZED_ALIASES[best_name], best_score
+    return _NORMALIZED_PROVINCES.get(best_name, ""), best_score
+
+
+def normalize_province(text: str, threshold: int = 62) -> str:
+    return match_province(text, threshold=threshold)[0]
