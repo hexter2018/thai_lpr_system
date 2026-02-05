@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alpr -d alpr -h 127.0.0.1 -p 5432"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
 
   redis:
     image: redis:7-alpine
@@ -22,52 +27,56 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173,http://10.32.70.136:5173
     volumes:
       - ./storage:/storage
       - ./models:/models
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   worker:
     build:
       context: ./worker
-    # ✅ เปิด GPU ให้ container
     gpus: all
     environment:
+      TRT_WORKSPACE: "4096"
+      TRT_FP16: "1"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
       CUDA_VISIBLE_DEVICES: "0"
       ULTRALYTICS_AUTOINSTALL: "false"
       YOLO_VERBOSE: "false"
-      # ✅ TensorRT engine
+
+      # ✅ แนะนำ: เริ่มจาก .pt แล้วให้ระบบ build .engine เองถ้ารองรับ
       MODEL_PATH: /models/best.pt
 
-      # Detector
       DETECTOR_CONF: "0.35"
       TRT_INPUT_W: "640"
       TRT_INPUT_H: "640"
       TRT_CONF_THRES: "0.35"
       TRT_IOU_THRES: "0.45"
       TRT_CLASS_ID: "0"
-
       MASTER_CONF_THRESHOLD: "0.95"
     volumes:
       - ./storage:/storage
       - ./models:/models
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   frontend:
     build:
       context: ./frontend
     environment:
-      VITE_API_BASE: http://localhost:8000
+      VITE_API_BASE: http://10.32.70.136:8000
     ports:
       - "5173:5173"
     depends_on:

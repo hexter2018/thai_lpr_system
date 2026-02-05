@@ -94,7 +94,12 @@ def main():
     engine_dir = Path(os.getenv("ENGINE_DIR", str(models_dir / "engines")))
     imgsz = int(os.getenv("DETECTOR_IMGSZ", "640"))
     fp16 = os.getenv("TRT_FP16", "1") == "1"
-    workspace = int(os.getenv("TRT_WORKSPACE", "4096"))
+    raw_ws = os.getenv("TRT_WORKSPACE", "4096")
+    try:
+        workspace = int(raw_ws)
+    except ValueError:
+        # fallback safe default
+        workspace = 4096
     force_rebuild = os.getenv("TRT_FORCE_REBUILD", "0") == "1"
 
     if not has_nvidia_smi():

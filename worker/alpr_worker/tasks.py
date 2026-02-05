@@ -8,11 +8,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from sqlalchemy import text, create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import bindparam
-from sqlalchemy.dialects.postgresql import JSONB
 from datetime import timezone
 import cv2
-
+import re
 from .celery_app import celery_app
 from .rtsp_control import should_stop  # worker/rtsp_control.py
 
@@ -76,20 +74,15 @@ def get_ocr() -> PlateOCR:
     return _ocr
 
 
-# ----------------------------
-# Core task: process_capture
-# ----------------------------
+def norm_plate_text(s: str) -> str:
+    if not s:
+        return ""
+    s = s.strip().upper()
+    s = re.sub(r"[\s\-\.]", "", s)  # remove space/dash/dot
+    return s
+
 @celery_app.task(name="tasks.process_capture")
 def process_capture(capture_id: int, image_path: str):
-    """
-    Process one capture (image):
-    - Detect plate (TensorRT .engine or YOLO fallback) -> crop
-    - OCR -> plate_text + province + confidence
-    - Insert into reads
-    - Master logic:
-        * if conf >= MASTER_CONF_THRESHOLD -> upsert master
-        * else keep only in reads (still can be verified later)
-    """
     img_path = Path(image_path)
 
     if not img_path.exists():
@@ -105,68 +98,77 @@ def process_capture(capture_id: int, image_path: str):
         crop_path = det.crop_path
 
         # 2) OCR
-        # PlateOCR.read returns OCRResult dataclass with:
-        #   - plate_text: detected plate number
-        #   - province: detected province name
-        #   - conf: confidence score (0..1)
-        #   - raw: debug info
         o = ocr.read(crop_path)
-
         plate_text = (o.plate_text or "").strip()
         province = (o.province or "").strip()
         conf = float(o.conf or 0.0)
         raw = o.raw or {}
 
-        # 3) write reads row
-        sql_ins_read = text("""
-            INSERT INTO plate_reads (
+        plate_text_norm = norm_plate_text(plate_text)
+
+        # 3) INSERT detections (เก็บข้อมูล detection/crop/meta ที่นี่)
+        # *** IMPORTANT: ต้องให้ตรงกับ schema ของ table detections ของคุณ ***
+        # ถ้าชื่อ column ใน detections ไม่ตรง ให้รัน: \d detections แล้วผมจะปรับให้เป๊ะ
+        sql_ins_det = text("""
+            INSERT INTO detections (
                 capture_id,
-                plate_crop_path,
+                crop_path,
                 det_conf,
-                ocr_conf,
-                plate_text,
-                province,
-                status,
-                created_at,
-                det_meta,
-                ocr_meta
+                bbox
             )
             VALUES (
                 :capture_id,
-                :plate_crop_path,
+                :crop_path,
                 :det_conf,
-                :ocr_conf,
-                :plate_text,
-                :province,
-                :status,
-                :created_at,
-                :det_meta,
-                :ocr_meta
+                :bbox
             )
             RETURNING id
-        """).bindparams(
-            bindparam("det_meta", type_=JSONB),
-            bindparam("ocr_meta", type_=JSONB),
-        )
+        """)
 
-        # status default = PENDING (รอคนตรวจ)
-        read_id = db.execute(sql_ins_read, {
+        detection_id = db.execute(sql_ins_det, {
             "capture_id": int(capture_id),
-            "plate_crop_path": str(crop_path),
+            "crop_path": str(crop_path),
             "det_conf": float(det.det_conf),
-            "ocr_conf": conf,
-            "plate_text": plate_text,
-            "province": province,
-            "status": "PENDING",
-            "created_at": datetime.now(timezone.utc),
-            "det_meta": det.bbox or {},
-            "ocr_meta": raw or {},
+            "bbox": json.dumps(det.bbox or {}, ensure_ascii=False),  # bbox เป็น text
         }).scalar_one()
+
+        # 4) INSERT plate_reads (ตาม schema จริง)
+        sql_ins_read = text("""
+            INSERT INTO plate_reads (
+                detection_id,
+                plate_text,
+                plate_text_norm,
+                province,
+                confidence,
+                status,
+                created_at
+            )
+            VALUES (
+                :detection_id,
+                :plate_text,
+                :plate_text_norm,
+                :province,
+                :confidence,
+                :status,
+                :created_at
+            )
+            RETURNING id
+        """)
+
+        read_id = db.execute(sql_ins_read, {
+            "detection_id": int(detection_id),
+            "plate_text": (plate_text[:32] if plate_text else ""),
+            "plate_text_norm": (plate_text_norm[:32] if plate_text_norm else ""),
+            "province": (province[:64] if province else ""),
+            "confidence": conf,
+            "status": "PENDING",  # enum readstatus
+            "created_at": datetime.now(timezone.utc),
+        }).scalar_one()
+
         db.commit()
 
-        # 4) master logic (ถ้า conf >= threshold ให้ upsert master)
-        if conf >= MASTER_CONF_THRESHOLD and plate_text:
-            # master key: plate_text + province
+        # 5) master logic (ใช้ plate_text_norm เป็น key จะนิ่งกว่า)
+        if conf >= MASTER_CONF_THRESHOLD and plate_text_norm:
             sql_upsert_master = text("""
                 INSERT INTO master_plates (
                     plate_text,
@@ -191,7 +193,7 @@ def process_capture(capture_id: int, image_path: str):
                     updated_at = EXCLUDED.updated_at
             """)
             db.execute(sql_upsert_master, {
-                "plate_text": plate_text,
+                "plate_text": plate_text_norm,
                 "province": province,
                 "best_confidence": conf,
                 "last_seen_at": now_utc(),
@@ -202,9 +204,11 @@ def process_capture(capture_id: int, image_path: str):
 
         return {
             "ok": True,
-            "capture_id": capture_id,
+            "capture_id": int(capture_id),
+            "detection_id": int(detection_id),
             "read_id": int(read_id),
             "plate_text": plate_text,
+            "plate_text_norm": plate_text_norm,
             "province": province,
             "confidence": conf,
             "crop_path": str(crop_path),
