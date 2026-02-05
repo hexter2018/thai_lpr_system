@@ -11,11 +11,14 @@ from sqlalchemy.orm import sessionmaker
 from datetime import timezone
 import cv2
 import re
+import logging
 from .celery_app import celery_app
 from .rtsp_control import should_stop  # worker/rtsp_control.py
 
 from .inference.detector import PlateDetector
 from .inference.ocr import PlateOCR  # ใช้ OCR / parser ที่คุณมีอยู่แล้ว
+
+log = logging.getLogger(__name__)
 
 
 # ----------------------------
@@ -99,13 +102,22 @@ def process_capture(capture_id: int, image_path: str):
         crop_path = det.crop_path
 
         # 2) OCR
-        o = ocr.read(crop_path)
+        o = ocr.read_plate(crop_path)
         plate_text = (o.plate_text or "").strip()
         province = (o.province or "").strip()
-        conf = float(o.conf or 0.0)
+        conf = float(o.confidence or 0.0)
         raw = o.raw or {}
 
         plate_text_norm = norm_plate_text(plate_text)
+
+        if conf < 0.6:
+            log.warning(
+                "Low OCR confidence for capture_id=%s variant=%s candidates=%s",
+                capture_id,
+                raw.get("chosen_variant"),
+                raw.get("candidates"),
+            )
+
 
         # 3) INSERT detections (เก็บข้อมูล detection/crop/meta ที่นี่)
         # *** IMPORTANT: ต้องให้ตรงกับ schema ของ table detections ของคุณ ***
