@@ -66,26 +66,24 @@ def try_load_engine(engine_path: Path) -> bool:
     except Exception:
         return False
 
-def build_engine(onnx_path: Path, engine_path: Path, fp16: bool, workspace: int) -> None:
+def build_engine(
+    onnx_path: Path,
+    engine_path: Path,
+    fp16: bool,
+    workspace: int,
+    workspace_mode: str,
+) -> None:
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "trtexec",
         f"--onnx={onnx_path}",
         f"--saveEngine={engine_path}",
-        f"--workspace={workspace}",
     ]
-<<<<<<< HEAD
     if workspace_mode == "mempool":
-<<<<<<< HEAD
         # TensorRT v10+ uses memPoolSize for workspace memory in MiB.
         cmd.append(f"--memPoolSize=workspace:{workspace}M")
-=======
-        cmd.append(f"--memPoolSize=workspace:{workspace}")
->>>>>>> parent of 4e73038 (Merge pull request #11 from hexter2018/codex/fix-tensorrt-build-and-improve-ocr-accuracy)
-    elif workspace_mode == "workspace":
+    else:
         cmd.append(f"--workspace={workspace}")
-=======
->>>>>>> parent of 7b6b0cf (Merge pull request #9 from hexter2018/codex/fix-tensorrt-engine-builder-workspace-compatibility)
     if fp16:
         cmd.append("--fp16")
     # Optional: verbose for debugging
@@ -124,6 +122,16 @@ def main():
     gname = gpu_name()
     trt_ver = tensorrt_version()      # "10.15" (best effort)
     trt_tag = "trt" + trt_ver.replace(".", "_")
+    workspace_mode = os.getenv("TRT_WORKSPACE_MODE", "auto").lower()
+    if workspace_mode not in {"auto", "mempool", "workspace"}:
+        workspace_mode = "auto"
+    if workspace_mode == "auto":
+        major = None
+        try:
+            major = int(str(trt_ver).split(".")[0])
+        except (ValueError, IndexError):
+            major = None
+        workspace_mode = "mempool" if (major is not None and major >= 10) else "workspace"
 
     engine_path = engine_dir / f"best_{sm}_{trt_tag}_fp16.engine"
 
@@ -141,7 +149,13 @@ def main():
         print("[ensure_engine] Cached engine exists but incompatible -> rebuild")
 
     ensure_onnx(pt_path, onnx_path, imgsz)
-    build_engine(onnx_path, engine_path, fp16=fp16, workspace=workspace)
+    build_engine(
+        onnx_path,
+        engine_path,
+        fp16=fp16,
+        workspace=workspace,
+        workspace_mode=workspace_mode,
+    )
 
     # Validate
     if not try_load_engine(engine_path):
