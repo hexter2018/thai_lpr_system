@@ -3,7 +3,6 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Literal
 
 def sh(cmd: list[str]) -> str:
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
@@ -36,46 +35,6 @@ def tensorrt_version() -> str:
     except Exception:
         return "unknown"
 
-def get_trtexec_help() -> str:
-    for flag in ("--help", "-h"):
-        try:
-            proc = subprocess.run(
-                ["trtexec", flag],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=False,
-            )
-            out = proc.stdout or ""
-            if out.strip():
-                return out
-        except Exception:
-            continue
-    return ""
-
-def detect_workspace_flag(help_text: str) -> Literal["mempool", "workspace", "none"]:
-    if "--memPoolSize" in help_text:
-        return "mempool"
-    if "--workspace" in help_text:
-        return "workspace"
-    return "none"
-
-def parse_mib_env(name: str, default: int, min_mib: int = 256, max_mib: int = 16384) -> int:
-    raw = os.getenv(name, str(default)).strip()
-    if not re.fullmatch(r"\d+", raw):
-        print(f"[ensure_engine] Warning: invalid {name}={raw!r}; using default {default} MiB")
-        value = default
-    else:
-        value = int(raw)
-
-    clamped = max(min_mib, min(value, max_mib))
-    if clamped != value:
-        print(
-            f"[ensure_engine] Warning: {name}={value} out of range "
-            f"[{min_mib}, {max_mib}] MiB; clamped to {clamped} MiB"
-        )
-    return clamped
-
 def ensure_onnx(pt_path: Path, onnx_path: Path, imgsz: int) -> None:
     if onnx_path.exists():
         return
@@ -107,19 +66,15 @@ def try_load_engine(engine_path: Path) -> bool:
     except Exception:
         return False
 
-def build_engine(
-    onnx_path: Path,
-    engine_path: Path,
-    fp16: bool,
-    workspace: int,
-    workspace_mode: Literal["mempool", "workspace", "none"],
-) -> None:
+def build_engine(onnx_path: Path, engine_path: Path, fp16: bool, workspace: int) -> None:
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "trtexec",
         f"--onnx={onnx_path}",
         f"--saveEngine={engine_path}",
+        f"--workspace={workspace}",
     ]
+<<<<<<< HEAD
     if workspace_mode == "mempool":
 <<<<<<< HEAD
         # TensorRT v10+ uses memPoolSize for workspace memory in MiB.
@@ -129,6 +84,8 @@ def build_engine(
 >>>>>>> parent of 4e73038 (Merge pull request #11 from hexter2018/codex/fix-tensorrt-build-and-improve-ocr-accuracy)
     elif workspace_mode == "workspace":
         cmd.append(f"--workspace={workspace}")
+=======
+>>>>>>> parent of 7b6b0cf (Merge pull request #9 from hexter2018/codex/fix-tensorrt-engine-builder-workspace-compatibility)
     if fp16:
         cmd.append("--fp16")
     # Optional: verbose for debugging
@@ -136,18 +93,9 @@ def build_engine(
 
     print("[ensure_engine] Building engine via trtexec:")
     print("  " + " ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-    merged = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
-    if merged.strip():
-        print(merged)
-    if proc.returncode != 0 or not engine_path.exists():
-        print("[ensure_engine] trtexec failed. Command used:")
-        print("  " + " ".join(cmd))
-        lines = merged.splitlines()
-        excerpt = "\n".join(lines[:30])
-        if excerpt:
-            print("[ensure_engine] trtexec output (first 30 lines):")
-            print(excerpt)
+    out = sh(cmd)
+    print(out)
+    if not engine_path.exists():
         raise RuntimeError("Engine build failed: engine file not created.")
 
 def main():
@@ -159,7 +107,12 @@ def main():
     engine_dir.mkdir(parents=True, exist_ok=True)
     imgsz = int(os.getenv("DETECTOR_IMGSZ", "640"))
     fp16 = os.getenv("TRT_FP16", "1") == "1"
-    workspace = parse_mib_env("TRT_WORKSPACE", default=4096)
+    raw_ws = os.getenv("TRT_WORKSPACE", "4096")
+    try:
+        workspace = int(raw_ws)
+    except ValueError:
+        # fallback safe default
+        workspace = 4096
     force_rebuild = os.getenv("TRT_FORCE_REBUILD", "0") == "1"
 
     if not has_nvidia_smi():
@@ -178,14 +131,6 @@ def main():
     print(f"[ensure_engine] TensorRT={trt_ver} -> {trt_tag}")
     print(f"[ensure_engine] Target engine: {engine_path}")
 
-    trtexec_help = get_trtexec_help()
-    workspace_mode = detect_workspace_flag(trtexec_help)
-    trtexec_version = "unknown"
-    m = re.search(r"TensorRT\s*v?(\d+(?:\.\d+){1,3})", trtexec_help, flags=re.IGNORECASE)
-    if m:
-        trtexec_version = m.group(1)
-    print(f"[ensure_engine] trtexec_version={trtexec_version} workspace_flag={workspace_mode}")
-
     if engine_path.exists() and not force_rebuild:
         ok = try_load_engine(engine_path)
         if ok:
@@ -196,13 +141,7 @@ def main():
         print("[ensure_engine] Cached engine exists but incompatible -> rebuild")
 
     ensure_onnx(pt_path, onnx_path, imgsz)
-    build_engine(
-        onnx_path,
-        engine_path,
-        fp16=fp16,
-        workspace=workspace,
-        workspace_mode=workspace_mode,
-    )
+    build_engine(onnx_path, engine_path, fp16=fp16, workspace=workspace)
 
     # Validate
     if not try_load_engine(engine_path):
