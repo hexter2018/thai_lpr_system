@@ -54,8 +54,6 @@ _THAI_CONFUSION_PENALTY_REDUCTION = {
     ("ม", "ฆ"): 0.03,
 }
 _CONFUSABLE_CHARS = set("ขฆม")
-
-_DEFAULT_VARIANT_LIMIT = 7
 _DEFAULT_VARIANT_NAMES = (
     "gray",
     "clahe",
@@ -116,9 +114,11 @@ class PlateOCR:
             candidate = self._evaluate_variant(variant_name, detections)
             variant_results.append(candidate)
 
+
         topline_variant = self._topline_roi_pass(img)
         if topline_variant:
             variant_results.append(topline_variant)
+
 
         aggregated = self._aggregate_plate_candidates(variant_results)
         best = aggregated["best"]
@@ -141,6 +141,22 @@ class PlateOCR:
                 "Low OCR confidence variants=%s candidates=%s",
                 [v["variant"] for v in variant_results],
                 aggregated["candidates"][:3],
+
+
+            )
+
+        debug_flags = self._should_debug(confidence, best, aggregated)
+        debug_artifacts = {}
+        if debug_flags and debug_dir:
+            debug_artifacts = self._save_debug_artifacts(
+                debug_dir=debug_dir,
+                debug_id=debug_id or Path(crop_path).stem,
+                image=img,
+                variant_images=self._build_variants(img),
+                aggregated=aggregated,
+                province_info=province_info,
+                flags=debug_flags,
+
             )
 
         debug_flags = self._should_debug(confidence, best, aggregated)
@@ -221,13 +237,21 @@ class PlateOCR:
         detections: Sequence[Tuple[Any, str, float]],
         score_boost: float = 0.0,
     ) -> Dict[str, Any]:
-        """Evaluate OCR detections for a single preprocessing variant."""
+
+
+    
+    def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
+
         lines, tokens = self._group_tokens_to_lines(detections)
         line_texts = ["".join(tok["text"] for tok in line) for line in lines]
 
         top_line = line_texts[0] if line_texts else ""
         plate_candidates = self._plate_candidates(top_line, tokens)
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
+
+
+
+        bottom_line = line_texts[1] if len(line_texts) > 1 else ""
 
         province_candidates_list = self._province_candidates_from_lines(line_texts)
         province = province_candidates_list[0]["name"] if province_candidates_list else ""
@@ -423,6 +447,7 @@ class PlateOCR:
         elif best["score"] > 0:
             margin_ratio = 1.0
 
+
         best_variant = next(
             (
                 variant
@@ -431,14 +456,24 @@ class PlateOCR:
             ),
             variant_results[0] if variant_results else {},
         )
+
         best_summary = {
             "text": best["text"],
             "score": best["score"],
             "avg_conf": best["avg_conf"],
             "consensus_ratio": best["consensus_ratio"],
             "margin_ratio": margin_ratio,
+
             "variant": best_variant.get("variant", ""),
             "lines": best_variant.get("lines", []),
+
+
+            "variant": best_variant.get("variant", ""),
+            "lines": best_variant.get("lines", []),
+
+            "variant": variant_results[0]["variant"] if variant_results else "",
+            "lines": variant_results[0]["lines"] if variant_results else [],
+
         }
         return {
             "best": best_summary,
