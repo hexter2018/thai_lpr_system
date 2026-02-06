@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { listCameras, upsertCamera, rtspStart, rtspStop } from '../lib/api.js'
 
 export default function Rtsp() {
@@ -10,6 +10,7 @@ export default function Rtsp() {
   const [name, setName] = useState("plaza2 lane 1")
   const [rtsp_url, setUrl] = useState("rtsp://user:pass@ip/stream")
   const [fps, setFps] = useState(2.0)
+  const didLoad = useRef(false)
 
   async function refresh() {
     setErr(""); setMsg("")
@@ -20,7 +21,11 @@ export default function Rtsp() {
     }
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    if (didLoad.current) return
+    didLoad.current = true
+    refresh()
+  }, [])
 
   async function onSaveCamera() {
     setErr(""); setMsg("")

@@ -90,3 +90,12 @@ class FeedbackSample(Base):
     reason: Mapped[str] = mapped_column(String(100), default="MLPR")
     used_in_train: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class Camera(Base):
+    __tablename__ = "cameras"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    camera_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    rtsp_url: Mapped[str] = mapped_column(Text, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
