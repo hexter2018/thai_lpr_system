@@ -103,6 +103,31 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
   const [note, setNote] = useState('')
   const provinceMissing = !p.trim()
 
+  // ✅ Quick Fix Buttons Configuration
+  const commonFixes = [
+    { from: 'ข', to: 'ฆ', label: 'ข→ฆ', desc: 'แก้ ข เป็น ฆ' },
+    { from: 'ฆ', to: 'ข', label: 'ฆ→ข', desc: 'แก้ ฆ เป็น ข' },
+    { from: 'ค', to: 'ฅ', label: 'ค→ฅ', desc: 'แก้ ค เป็น ฅ' },
+    { from: 'ผ', to: 'พ', label: 'ผ→พ', desc: 'แก้ ผ เป็น พ' },
+    { from: 'พ', to: 'ผ', label: 'พ→ผ', desc: 'แก้ พ เป็น ผ' },
+    { from: 'บ', to: 'ป', label: 'บ→ป', desc: 'แก้ บ เป็น ป' },
+    { from: 'ป', to: 'บ', label: 'ป→บ', desc: 'แก้ ป เป็น บ' },
+  ]
+
+  // ✅ Province Quick Fixes
+  const provinceShortcuts = [
+    { value: 'กรุงเทพมหานคร', label: 'กทม', icon: '🏙️' },
+    { value: 'สมุทรปราการ', label: 'ปราการ', icon: '🏭' },
+    { value: 'สมุทรสาคร', label: 'สาคร', icon: '⚓' },
+    { value: 'นนทบุรี', label: 'นนท์', icon: '🏘️' },
+    { value: 'ปทุมธานี', label: 'ปทุม', icon: '🌾' },
+    { value: 'ชลบุรี', label: 'ชล', icon: '🏖️' },
+  ]
+
+  function applyFix(from, to) {
+    setT(t.replace(new RegExp(from, 'g'), to))
+  }
+
   function normalizePlateText(raw) {
     return (raw || '')
       .trim()
@@ -148,10 +173,44 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
             <label className="text-sm font-medium text-slate-200">
               Plate
               <input className="input-dark" value={t} onChange={(e) => setT(e.target.value)} />
+              
+              {/* ✅ Quick Fix Buttons สำหรับป้ายทะเบียน */}
+              <div className="mt-2 flex flex-wrap gap-1">
+                <span className="text-xs text-slate-400">Quick fix:</span>
+                {commonFixes.map(fix => (
+                  <button
+                    key={fix.label}
+                    type="button"
+                    title={fix.desc}
+                    className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+                    onClick={() => applyFix(fix.from, fix.to)}
+                  >
+                    {fix.label}
+                  </button>
+                ))}
+              </div>
             </label>
+
             <label className="text-sm font-medium text-slate-200">
               Province
               <input className="input-dark" placeholder="ยังอ่านจังหวัดไม่ได้" value={p} onChange={(e) => setP(e.target.value)} />
+              
+              {/* ✅ Province Quick Select */}
+              <div className="mt-2 flex flex-wrap gap-1">
+                <span className="text-xs text-slate-400">Quick:</span>
+                {provinceShortcuts.map(prov => (
+                  <button
+                    key={prov.value}
+                    type="button"
+                    title={prov.value}
+                    className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+                    onClick={() => setP(prov.value)}
+                  >
+                    {prov.icon} {prov.label}
+                  </button>
+                ))}
+              </div>
+              
               {provinceMissing && <div className="mt-1 text-xs text-amber-200">ยังอ่านจังหวัดไม่ได้ - สามารถยืนยันหรือแก้ไขได้</div>}
             </label>
           </div>
@@ -162,9 +221,17 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
           </label>
 
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <button disabled={busy} onClick={onConfirm} className="btn-blue disabled:opacity-50">Confirm <span className="text-xs text-blue-100/90">Enter</span></button>
-            <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft disabled:opacity-50">Save correction <span className="text-xs text-slate-300">Ctrl+Enter</span></button>
-            <button type="button" className="btn-soft" onClick={() => setT(normalizePlateText(t))}>Normalize text</button>
+            <button disabled={busy} onClick={onConfirm} className="btn-blue disabled:opacity-50">
+              ✓ Confirm 
+              <kbd className="ml-1 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
+            </button>
+            <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft disabled:opacity-50">
+              💾 Save correction 
+              <kbd className="ml-1 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
+            </button>
+            <button type="button" className="btn-soft" onClick={() => setT(normalizePlateText(t))}>
+              🔧 Normalize
+            </button>
             <button
               type="button"
               className="btn-soft border border-rose-300/40 text-rose-200 hover:border-rose-300/70"
@@ -175,7 +242,7 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
                 }
               }}
             >
-              Delete
+              🗑️ Delete
             </button>
           </div>
         </div>
