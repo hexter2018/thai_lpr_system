@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from typing import Dict, Tuple
 
-from rapidfuzz import fuzz, process
+try:
+    from rapidfuzz import fuzz, process
+except Exception:  # pragma: no cover - optional dependency fallback
+    fuzz = None
+    process = None
 
 THAI_PROVINCES = [
     "กรุงเทพมหานคร", "กระบี่", "กาญจนบุรี", "กาฬสินธุ์", "กำแพงเพชร", "ขอนแก่น", "จันทบุรี", "ฉะเชิงเทรา", "ชลบุรี", "ชัยนาท",
@@ -83,8 +88,26 @@ def match_province(text: str, threshold: int = 62) -> Tuple[str, float]:
             overlap = min(len(cleaned), len(n_name)) / max(len(cleaned), len(n_name))
             return province, 75.0 + overlap * 20.0
 
-    province_match = process.extractOne(cleaned, list(_NORMALIZED_PROVINCES.keys()), scorer=fuzz.WRatio)
-    alias_match = process.extractOne(cleaned, list(_NORMALIZED_ALIASES.keys()), scorer=fuzz.WRatio)
+    province_match = None
+    alias_match = None
+    if process is not None and fuzz is not None:
+        province_match = process.extractOne(cleaned, list(_NORMALIZED_PROVINCES.keys()), scorer=fuzz.WRatio)
+        alias_match = process.extractOne(cleaned, list(_NORMALIZED_ALIASES.keys()), scorer=fuzz.WRatio)
+    else:
+        def best_with_sequence_match(candidates: Dict[str, str]) -> Tuple[str, float]:
+            best_name = ""
+            best_score = 0.0
+            for name in candidates.keys():
+                score = SequenceMatcher(None, cleaned, name).ratio() * 100.0
+                if score > best_score:
+                    best_name = name
+                    best_score = score
+            return best_name, best_score
+
+        p_name, p_score = best_with_sequence_match(_NORMALIZED_PROVINCES)
+        a_name, a_score = best_with_sequence_match(_NORMALIZED_ALIASES)
+        province_match = (p_name, p_score) if p_name else None
+        alias_match = (a_name, a_score) if a_name else None
 
     best_name = ""
     best_score = 0.0

@@ -12,7 +12,7 @@ export const Card = React.forwardRef(function Card({ children, className = '', .
   )
 })
 
-export function Button({ children, variant = 'primary', className = '', ...props }) {
+export const Button = React.forwardRef(function Button({ children, variant = 'primary', className = '', ...props }, ref) {
   const base = 'inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50'
   const variants = {
     primary: 'bg-blue-600 text-white hover:bg-blue-500',
@@ -20,15 +20,15 @@ export function Button({ children, variant = 'primary', className = '', ...props
     danger: 'bg-rose-600 text-white hover:bg-rose-500',
   }
   return (
-    <button className={`${base} ${variants[variant] || variants.primary} ${className}`} {...props}>
+    <button ref={ref} className={`${base} ${variants[variant] || variants.primary} ${className}`} {...props}>
       {children}
     </button>
   )
-}
+})
 
-export function Input({ className = '', ...props }) {
-  return <input className={`mt-1 w-full rounded-xl border border-blue-200/25 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 ${className}`} {...props} />
-}
+export const Input = React.forwardRef(function Input({ className = '', ...props }, ref) {
+  return <input ref={ref} className={`mt-1 w-full rounded-xl border border-blue-200/25 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 ${className}`} {...props} />
+})
 
 export function Badge({ score = 0 }) {
   const cls = score >= 0.95
