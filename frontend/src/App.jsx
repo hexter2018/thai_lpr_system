@@ -1,6 +1,6 @@
 import React from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import AppLayout from './components/AppLayout.jsx'
+import Layout from './components/Layout.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Upload from './pages/Upload.jsx'
 import Queue from './pages/Queue.jsx'
@@ -10,7 +10,7 @@ import Rtsp from './pages/Rtsp.jsx'
 export default function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
+      <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/upload" element={<Upload />} />
         <Route path="/queue" element={<Queue />} />

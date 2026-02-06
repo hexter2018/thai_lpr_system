@@ -1,31 +1,23 @@
 import React, { useState } from 'react'
 import { uploadBatch, uploadSingle } from '../lib/api.js'
-
-function UploadCard({ title, hint, children }) {
-  return (
-    <section className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/10">
-      <div className="mb-2 text-lg font-semibold text-slate-100">{title}</div>
-      <div className="mb-4 text-sm text-slate-400">{hint}</div>
-      {children}
-    </section>
-  )
-}
+import { Button, Card, PageHeader } from '../components/ui.jsx'
 
 export default function Upload() {
   const [single, setSingle] = useState(null)
   const [multi, setMulti] = useState([])
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [dragging, setDragging] = useState(false)
 
   async function onUploadSingle() {
     if (!single) return
     setBusy(true)
-    setMsg('')
+    setMsg('Uploading single image...')
     try {
       const r = await uploadSingle(single)
-      setMsg(`Uploaded capture_id=${r.capture_id}`)
+      setMsg(`✅ Uploaded capture_id=${r.capture_id}`)
     } catch (e) {
-      setMsg(String(e))
+      setMsg(`❌ ${String(e)}`)
     } finally {
       setBusy(false)
     }
@@ -34,37 +26,55 @@ export default function Upload() {
   async function onUploadBatch() {
     if (!multi.length) return
     setBusy(true)
-    setMsg('')
+    setMsg('Uploading batch...')
     try {
       const r = await uploadBatch(multi)
-      setMsg(`Uploaded batch: count=${r.count}`)
+      setMsg(`✅ Uploaded batch count=${r.count}`)
     } catch (e) {
-      setMsg(String(e))
+      setMsg(`❌ ${String(e)}`)
     } finally {
       setBusy(false)
     }
   }
 
+  function onDrop(e) {
+    e.preventDefault()
+    setDragging(false)
+    const files = Array.from(e.dataTransfer.files || [])
+    if (!files.length) return
+    setSingle(files[0])
+    setMulti(files)
+  }
+
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-blue-300/20 bg-gradient-to-r from-blue-500/15 to-cyan-400/10 p-5">
-        <h1 className="text-2xl font-semibold text-slate-100">Upload</h1>
-        <p className="mt-1 text-sm text-slate-300">อัปโหลดภาพเพื่อนำไปประมวลผล และตรวจผลที่หน้า Verification Queue</p>
-      </div>
+    <div>
+      <PageHeader title="Upload" subtitle="ลากไฟล์ภาพเพื่อส่งเข้า OCR pipeline ได้ทั้งเดี่ยวและแบบชุด" />
+      {msg && <Card className="mb-4 text-blue-100">{msg}</Card>}
 
-      {msg && <div className="rounded-xl border border-blue-300/30 bg-blue-500/10 p-3 text-sm text-blue-100">{msg}</div>}
+      <Card
+        className={`mb-4 border-dashed p-8 text-center ${dragging ? 'border-blue-300/60 bg-blue-600/10' : 'border-blue-200/30'}`}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        <p className="text-sm text-slate-300">Drag & drop images here</p>
+        <p className="mt-2 text-xs text-slate-400">หรือเลือกไฟล์จากช่องด้านล่าง</p>
+      </Card>
 
-      <UploadCard title="Single Image" hint="ส่งภาพเดี่ยวสำหรับทดสอบเร็ว">
-        <input type="file" accept="image/*" onChange={(e) => setSingle(e.target.files?.[0] || null)} className="file-input" />
-        <button disabled={busy || !single} onClick={onUploadSingle} className="btn-blue mt-4 disabled:opacity-50">Upload single</button>
-      </UploadCard>
-
-      <UploadCard title="Multiple Images" hint="อัปโหลดหลายภาพพร้อมกันเพื่อเข้าคิวประมวลผล">
-        <input type="file" accept="image/*" multiple onChange={(e) => setMulti(Array.from(e.target.files || []))} className="file-input" />
-        <button disabled={busy || !multi.length} onClick={onUploadBatch} className="btn-blue mt-4 disabled:opacity-50">
-          Upload batch ({multi.length})
-        </button>
-      </UploadCard>
+      <Card className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="text-sm text-slate-200">Single image
+            <input className="mt-2 block w-full text-sm" type="file" accept="image/*" onChange={(e) => setSingle(e.target.files?.[0] || null)} />
+          </label>
+          <label className="text-sm text-slate-200">Batch images
+            <input className="mt-2 block w-full text-sm" type="file" multiple accept="image/*" onChange={(e) => setMulti(Array.from(e.target.files || []))} />
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={busy || !single} onClick={onUploadSingle}>Upload single</Button>
+          <Button variant="secondary" disabled={busy || !multi.length} onClick={onUploadBatch}>Upload batch ({multi.length})</Button>
+        </div>
+      </Card>
     </div>
   )
 }

@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { searchMaster, upsertMaster } from '../lib/api.js'
+import { Button, Card, Input, PageHeader } from '../components/ui.jsx'
 
 export default function Master() {
-  const [q, setQ] = useState("")
+  const [q, setQ] = useState('')
   const [rows, setRows] = useState([])
-  const [err, setErr] = useState("")
-  const [msg, setMsg] = useState("")
+  const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function load() {
-    setErr(""); setMsg("")
+    setErr(''); setMsg('')
     try {
-      const r = await searchMaster(q)
-      setRows(r)
+      setRows(await searchMaster(q))
     } catch (e) {
       setErr(String(e))
     }
@@ -21,16 +21,10 @@ export default function Master() {
   useEffect(() => { load() }, [])
 
   async function saveRow(row) {
-    setBusy(true); setErr(""); setMsg("")
+    setBusy(true); setErr(''); setMsg('')
     try {
-      await upsertMaster({
-        plate_text_norm: row.plate_text_norm,
-        display_text: row.display_text,
-        province: row.province,
-        confidence: row.confidence,
-        editable: row.editable
-      })
-      setMsg("Saved")
+      await upsertMaster(row)
+      setMsg('Saved')
       await load()
     } catch (e) {
       setErr(String(e))
@@ -41,35 +35,28 @@ export default function Master() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-3">Master Data</h1>
-      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm mb-3">
+      <PageHeader title="Master Data" subtitle="ค้นหาและแก้ไขข้อมูลทะเบียนที่ยืนยันแล้ว" />
+      <Card className="mb-3">
         <div className="flex gap-2">
-          <input className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200"
-          placeholder="Search plate_text_norm..."
-          value={q} onChange={e=>setQ(e.target.value)} />
-          <button className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-sm hover:bg-blue-700 active:bg-blue-800" onClick={load}>Search</button>
+          <Input placeholder="Search plate_text_norm..." value={q} onChange={(e) => setQ(e.target.value)} className="mt-0" />
+          <Button onClick={load}>Search</Button>
         </div>
-      </div>
+      </Card>
+      {err && <Card className="mb-3 border-rose-300/30 text-rose-200">{err}</Card>}
+      {msg && <Card className="mb-3 text-emerald-200">{msg}</Card>}
 
-      {err && <div className="text-red-600 mb-3">{err}</div>}
-      {msg && <div className="text-green-700 mb-3">{msg}</div>}
-
-      <div className="overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-auto rounded-2xl border border-blue-200/20">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50">
+          <thead className="sticky top-0 bg-slate-900">
             <tr>
-              <th className="text-left p-2">plate_text_norm</th>
-              <th className="text-left p-2">display_text</th>
-              <th className="text-left p-2">province</th>
-              <th className="text-left p-2">confidence</th>
-              <th className="text-left p-2">count</th>
-              <th className="text-left p-2">editable</th>
-              <th className="text-left p-2"></th>
+              {['plate_text_norm', 'display_text', 'province', 'confidence', 'count', 'editable', ''].map((h) => (
+                <th key={h} className="px-3 py-2 text-left text-slate-300">{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => <Row key={r.id} r={r} busy={busy} onSave={saveRow} />)}
-            {!rows.length && <tr><td className="p-3 text-slate-500" colSpan="7">No records</td></tr>}
+            {rows.map((r, i) => <Row key={r.id} r={r} busy={busy} onSave={saveRow} striped={i % 2 === 1} />)}
+            {!rows.length && <tr><td className="p-3 text-slate-400" colSpan="7">No records</td></tr>}
           </tbody>
         </table>
       </div>
@@ -77,44 +64,21 @@ export default function Master() {
   )
 }
 
-function Row({r, onSave, busy}) {
-  const [display, setDisplay] = useState(r.display_text || "")
-  const [prov, setProv] = useState(r.province || "")
+function Row({ r, onSave, busy, striped }) {
+  const [display, setDisplay] = useState(r.display_text || '')
+  const [prov, setProv] = useState(r.province || '')
   const [conf, setConf] = useState(r.confidence ?? 1.0)
   const [editable, setEditable] = useState(!!r.editable)
 
   return (
-    <tr className="border-t border-slate-100">
+    <tr className={`${striped ? 'bg-slate-900/50' : 'bg-slate-950/40'} border-t border-blue-200/10`}>
       <td className="p-2 font-mono">{r.plate_text_norm}</td>
-      <td className="p-2">
-        <input className="rounded-xl border border-slate-200 px-3 py-2 w-full text-sm focus:ring-2 focus:ring-blue-200"
-          value={display} onChange={e=>setDisplay(e.target.value)} />
-      </td>
-      <td className="p-2">
-        <input className="rounded-xl border border-slate-200 px-3 py-2 w-full text-sm focus:ring-2 focus:ring-blue-200"
-          value={prov} onChange={e=>setProv(e.target.value)} />
-      </td>
-      <td className="p-2">
-        <input className="rounded-xl border border-slate-200 px-3 py-2 w-28 text-sm focus:ring-2 focus:ring-blue-200"
-          type="number" step="0.001"
-          value={conf} onChange={e=>setConf(parseFloat(e.target.value))} />
-      </td>
+      <td className="p-2"><Input className="mt-0" value={display} onChange={(e) => setDisplay(e.target.value)} /></td>
+      <td className="p-2"><Input className="mt-0" value={prov} onChange={(e) => setProv(e.target.value)} /></td>
+      <td className="p-2"><Input className="mt-0 w-24" type="number" step="0.001" value={conf} onChange={(e) => setConf(parseFloat(e.target.value))} /></td>
       <td className="p-2">{r.count_seen}</td>
-      <td className="p-2">
-        <input type="checkbox" checked={editable} onChange={e=>setEditable(e.target.checked)} />
-      </td>
-      <td className="p-2">
-        <button disabled={busy} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-sm hover:bg-blue-700 disabled:opacity-60"
-          onClick={() => onSave({
-            ...r,
-            display_text: display,
-            province: prov,
-            confidence: conf,
-            editable
-          })}>
-          Save
-        </button>
-      </td>
+      <td className="p-2"><input type="checkbox" checked={editable} onChange={(e) => setEditable(e.target.checked)} /></td>
+      <td className="p-2"><Button disabled={busy} onClick={() => onSave({ ...r, display_text: display, province: prov, confidence: conf, editable })}>Save</Button></td>
     </tr>
   )
 }
