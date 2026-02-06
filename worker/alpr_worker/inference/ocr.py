@@ -55,7 +55,11 @@ _THAI_CONFUSION_PENALTY_REDUCTION = {
 }
 _CONFUSABLE_CHARS = set("ขฆม")
 
+
+_DEFAULT_VARIANT_LIMIT = 7
+
 _DEFAULT_VARIANT_LIMIT = 6
+
 _DEFAULT_VARIANT_NAMES = (
     "gray",
     "clahe",
@@ -116,6 +120,12 @@ class PlateOCR:
             candidate = self._evaluate_variant(variant_name, detections)
             variant_results.append(candidate)
 
+
+        topline_variant = self._topline_roi_pass(img)
+        if topline_variant:
+            variant_results.append(topline_variant)
+
+
         aggregated = self._aggregate_plate_candidates(variant_results)
         best = aggregated["best"]
 
@@ -137,6 +147,23 @@ class PlateOCR:
                 "Low OCR confidence variants=%s candidates=%s",
                 [v["variant"] for v in variant_results],
                 aggregated["candidates"][:3],
+
+            )
+
+        debug_flags = self._should_debug(confidence, best, aggregated)
+        debug_artifacts = {}
+        if debug_flags and debug_dir:
+            debug_artifacts = self._save_debug_artifacts(
+                debug_dir=debug_dir,
+                debug_id=debug_id or Path(crop_path).stem,
+                image=img,
+                variant_images=self._build_variants(img),
+                aggregated=aggregated,
+                province_info=province_info,
+                flags=debug_flags,
+            )
+
+
             )
 
         debug_flags = self._should_debug(confidence, best, aggregated)
@@ -211,7 +238,15 @@ class PlateOCR:
             variants = variants[: self.variant_limit]
         return variants
 
+    def _evaluate_variant(
+        self,
+        variant_name: str,
+        detections: Sequence[Tuple[Any, str, float]],
+        score_boost: float = 0.0,
+    ) -> Dict[str, Any]:
+    
     def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
+
         lines, tokens = self._group_tokens_to_lines(detections)
         line_texts = ["".join(tok["text"] for tok in line) for line in lines]
 
@@ -219,12 +254,13 @@ class PlateOCR:
         plate_candidates = self._plate_candidates(top_line, tokens)
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
+
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
         province_candidates_list = self._province_candidates_from_lines(line_texts)
         province = province_candidates_list[0]["name"] if province_candidates_list else ""
         province_score = province_candidates_list[0]["score"] if province_candidates_list else 0.0
 
-        score = best_plate["score"] + (0.08 if province else 0.0)
+        score = best_plate["score"] + (0.08 if province else 0.0) + score_boost
         return {
             "variant": variant_name,
             "plate_text": best_plate["text"],
@@ -277,6 +313,34 @@ class PlateOCR:
 
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return candidates
+
+    def _topline_roi_pass(self, image: np.ndarray) -> Optional[Dict[str, Any]]:
+        h, w = image.shape[:2]
+        end = int(h * 0.55)
+        roi = image[0:end, 0:w]
+        if roi.size == 0:
+            return None
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)).apply(gray)
+        sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
+        adaptive = cv2.adaptiveThreshold(sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
+        up2 = cv2.resize(sharpen, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+        variants = [
+            ("roi_topline_gray", gray),
+            ("roi_topline_clahe", clahe),
+            ("roi_topline_sharpen", sharpen),
+            ("roi_topline_adaptive", adaptive),
+            ("roi_topline_upscale", up2),
+        ]
+
+        best_variant: Optional[Dict[str, Any]] = None
+        for name, variant in variants:
+            detections = self.reader.readtext(variant, detail=1, allowlist=_THAI_ALLOWLIST)
+            candidate = self._evaluate_variant(name, detections, score_boost=0.12)
+            if not best_variant or candidate["score"] > best_variant["score"]:
+                best_variant = candidate
+        return best_variant
 
     def _province_roi_pass(self, image: np.ndarray) -> Dict[str, Any]:
         h, w = image.shape[:2]
@@ -386,14 +450,30 @@ class PlateOCR:
         elif best["score"] > 0:
             margin_ratio = 1.0
 
+
+        best_variant = next(
+            (
+                variant
+                for variant in sorted(variant_results, key=lambda v: v.get("score", 0.0), reverse=True)
+                if variant.get("plate_text") == best["text"]
+            ),
+            variant_results[0] if variant_results else {},
+        )
+
+
         best_summary = {
             "text": best["text"],
             "score": best["score"],
             "avg_conf": best["avg_conf"],
             "consensus_ratio": best["consensus_ratio"],
             "margin_ratio": margin_ratio,
+
+            "variant": best_variant.get("variant", ""),
+            "lines": best_variant.get("lines", []),
+
             "variant": variant_results[0]["variant"] if variant_results else "",
             "lines": variant_results[0]["lines"] if variant_results else [],
+
         }
         return {
             "best": best_summary,
