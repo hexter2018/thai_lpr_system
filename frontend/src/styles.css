@@ -23,6 +23,11 @@
     @apply rounded-2xl border border-blue-300/20 bg-slate-900/55 shadow-xl shadow-blue-950/20 backdrop-blur;
   }
 
+
+  .top-nav {
+    @apply rounded-xl border border-blue-300/15 bg-slate-950/35 p-2;
+  }
+
   .nav-item {
     @apply flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition;
   }
