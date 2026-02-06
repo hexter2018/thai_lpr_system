@@ -25,6 +25,16 @@ docker compose up --build
 - API docs: http://localhost:8000/docs
 - Frontend: http://localhost:5173
 
+### Windows (Docker Desktop → Linux containers)
+Use the CPU worker and localhost defaults:
+```bash
+cd thai-alpr
+docker compose -f docker-compose.windows.yml up --build
+```
+
+- Backend: http://localhost:8000
+- Frontend: http://localhost:5173
+
 ### 2) Try upload
 Open Frontend → **Upload** page and upload 1 or multiple images.
 
