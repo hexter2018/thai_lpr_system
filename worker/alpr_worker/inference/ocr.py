@@ -62,8 +62,11 @@ class PlateOCR:
         roi_province = self._province_roi_pass(img)
         final_province = best["province"]
         if roi_province["province"]:
-            final_province = roi_province["province"]
-
+            roi_score = float(roi_province.get("score") or 0.0)
+            roi_score = float(roi_province.get("score") or 0.0)
+            if not final_province or roi_score >= max(70.0, line_score + 5.0):
+                final_province = roi_province["province"]
+                
         confidence = max(0.0, min(float(best["confidence"]), 1.0))
         if confidence < 0.6:
             log.warning(
