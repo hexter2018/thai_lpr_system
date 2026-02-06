@@ -40,7 +40,7 @@ _THAI_CONFUSION_MAP = {
     "ส": ("ศ", "ษ"),
     "ศ": ("ส", "ษ"),
     "ษ": ("ส", "ศ"),
-    "ค": ("ฅ",),       
+    "ค": ("ฅ",),
     "ฅ": ("ค",),
     "ท": ("ธ",),
     "ธ": ("ท",),
@@ -54,6 +54,7 @@ _THAI_CONFUSION_PENALTY_REDUCTION = {
     ("ม", "ฆ"): 0.03,
 }
 _CONFUSABLE_CHARS = set("ขฆม")
+
 _DEFAULT_VARIANT_NAMES = (
     "gray",
     "clahe",
@@ -84,8 +85,10 @@ class PlateOCR:
         use_gpu = torch.cuda.is_available()
         self.reader = easyocr.Reader(["th", "en"], gpu=use_gpu, verbose=False)
         self.thai_reader = easyocr.Reader(["th"], gpu=use_gpu, verbose=False)
+
         self.variant_names = self._load_variant_names()
         self.variant_limit = int(os.getenv("OCR_VARIANT_LIMIT", str(_DEFAULT_VARIANT_LIMIT)))
+
         self.top_k = int(os.getenv("OCR_TOP_K", str(_DEFAULT_TOP_K)))
         self.consensus_min = float(os.getenv("OCR_CONSENSUS_MIN", str(_DEFAULT_CONSENSUS_MIN)))
         self.margin_min = float(os.getenv("OCR_MARGIN_MIN", str(_DEFAULT_MARGIN_MIN)))
@@ -115,11 +118,9 @@ class PlateOCR:
             candidate = self._evaluate_variant(variant_name, detections)
             variant_results.append(candidate)
 
-
         topline_variant = self._topline_roi_pass(img)
         if topline_variant:
             variant_results.append(topline_variant)
-
 
         aggregated = self._aggregate_plate_candidates(variant_results)
         best = aggregated["best"]
@@ -137,31 +138,17 @@ class PlateOCR:
             flags.append("plate_present")
 
         confidence = self._calibrate_confidence(best, flags)
+
         if confidence < 0.6:
             log.warning(
                 "Low OCR confidence variants=%s candidates=%s",
-                [v["variant"] for v in variant_results],
-                aggregated["candidates"][:3],
-
-
+                [v.get("variant") for v in variant_results],
+                aggregated.get("candidates", [])[:3],
             )
 
+        # ✅ เหลือ debug block แค่ครั้งเดียว (ของเดิมซ้ำ 2 ก้อน)
         debug_flags = self._should_debug(confidence, best, aggregated)
-        debug_artifacts = {}
-        if debug_flags and debug_dir:
-            debug_artifacts = self._save_debug_artifacts(
-                debug_dir=debug_dir,
-                debug_id=debug_id or Path(crop_path).stem,
-                image=img,
-                variant_images=self._build_variants(img),
-                aggregated=aggregated,
-                province_info=province_info,
-                flags=debug_flags,
-
-            )
-
-        debug_flags = self._should_debug(confidence, best, aggregated)
-        debug_artifacts = {}
+        debug_artifacts: Dict[str, Any] = {}
         if debug_flags and debug_dir:
             debug_artifacts = self._save_debug_artifacts(
                 debug_dir=debug_dir,
@@ -183,6 +170,7 @@ class PlateOCR:
             }
             for cand in aggregated["candidates"]
         ]
+
         return OCRResult(
             plate_text=display_text,
             province=final_province,
@@ -217,6 +205,7 @@ class PlateOCR:
         up2 = cv2.resize(clahe, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
         up2_adaptive = cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
         up2_otsu = cv2.resize(otsu, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
+
         variants = [
             ("gray", gray),
             ("clahe", clahe),
@@ -237,7 +226,7 @@ class PlateOCR:
         variant_name: str,
         detections: Sequence[Tuple[Any, str, float]],
         score_boost: float = 0.0,
-    ) -> Dict[str, Any]:   
+    ) -> Dict[str, Any]:
         lines, tokens = self._group_tokens_to_lines(detections)
         line_texts = ["".join(tok["text"] for tok in line) for line in lines]
 
@@ -245,22 +234,19 @@ class PlateOCR:
         plate_candidates = self._plate_candidates(top_line, tokens)
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
-
-
-        bottom_line = line_texts[1] if len(line_texts) > 1 else ""
-
         province_candidates_list = self._province_candidates_from_lines(line_texts)
         province = province_candidates_list[0]["name"] if province_candidates_list else ""
         province_score = province_candidates_list[0]["score"] if province_candidates_list else 0.0
 
-        score = best_plate["score"] + (0.08 if province else 0.0) + score_boost
+        score = float(best_plate["score"]) + (0.08 if province else 0.0) + float(score_boost)
+
         return {
             "variant": variant_name,
             "plate_text": best_plate["text"],
-            "confidence": best_plate["confidence"],
-            "score": score,
+            "confidence": float(best_plate["confidence"]),
+            "score": float(score),
             "province": province,
-            "line_province_score": province_score,
+            "line_province_score": float(province_score),
             "lines": line_texts,
             "candidates": plate_candidates,
             "province_candidates": province_candidates_list,
@@ -319,6 +305,7 @@ class PlateOCR:
         sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
         adaptive = cv2.adaptiveThreshold(sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
         up2 = cv2.resize(sharpen, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+
         variants = [
             ("roi_topline_gray", gray),
             ("roi_topline_clahe", clahe),
@@ -333,6 +320,7 @@ class PlateOCR:
             candidate = self._evaluate_variant(name, detections, score_boost=0.12)
             if not best_variant or candidate["score"] > best_variant["score"]:
                 best_variant = candidate
+
         return best_variant
 
     def _province_roi_pass(self, image: np.ndarray) -> Dict[str, Any]:
@@ -344,17 +332,20 @@ class PlateOCR:
 
         roi_threshold = max(50, int(self.province_min_score - 7))
         best = {"province": "", "score": 0.0, "variant": "", "texts": []}
+
         for name, variant in self._build_province_roi_variants(roi):
             detections = self.thai_reader.readtext(variant, detail=1, allowlist=_THAI_ONLY_ALLOWLIST)
             texts = [self._normalize_text(t) for _, t, c in detections if float(c or 0.0) >= 0.1]
             texts = [t for t in texts if t]
             if not texts:
                 continue
+
             for text in ["".join(texts)] + texts:
                 province, score = match_province(text, threshold=roi_threshold)
                 province = normalize_province(province or text, threshold=roi_threshold)
                 if province and score > best["score"]:
                     best = {"province": province, "score": float(score), "variant": name, "texts": texts}
+
         return best
 
     def _build_province_roi_variants(self, roi: np.ndarray) -> List[Tuple[str, np.ndarray]]:
@@ -382,33 +373,47 @@ class PlateOCR:
     def _province_candidates_from_lines(self, line_texts: List[str]) -> List[Dict[str, Any]]:
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
         merged = "".join(line_texts)
-        candidates = []
+
+        candidates: List[Dict[str, Any]] = []
         for text in (bottom_line, merged):
             if not text:
                 continue
             for name, score in province_candidates(text, limit=self.top_k, threshold=int(self.province_min_score)):
-                candidates.append({"name": normalize_province(name, threshold=int(self.province_min_score)), "score": float(score)})
+                candidates.append({
+                    "name": normalize_province(name, threshold=int(self.province_min_score)),
+                    "score": float(score),
+                })
+
         deduped: Dict[str, float] = {}
         for item in candidates:
             if not item["name"]:
                 continue
             if item["name"] not in deduped or item["score"] > deduped[item["name"]]:
                 deduped[item["name"]] = item["score"]
+
         return [
             {"name": name, "score": score}
             for name, score in sorted(deduped.items(), key=lambda item: item[1], reverse=True)
         ]
 
+    # ✅ FIX: consensus แบบ unique variant + ไม่นับ roi_* เข้า denominator + best_summary ไม่ซ้ำ key
     def _aggregate_plate_candidates(self, variant_results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        variant_count = max(len(variant_results), 1)
+        base_variant_ids = {
+            v.get("variant", "")
+            for v in variant_results
+            if v.get("variant", "") and not v.get("variant", "").startswith("roi_")
+        }
+        variant_count = max(len(base_variant_ids), 1)
+
         flat: List[Dict[str, Any]] = []
         for variant in variant_results:
-            for cand in variant.get("candidates", [])[: self.top_k]:
+            vid = variant.get("variant", "")
+            for cand in (variant.get("candidates") or [])[: self.top_k]:
                 flat.append({
                     "text": cand["text"],
                     "score": float(cand["score"]),
                     "confidence": float(cand["confidence"]),
-                    "preprocess_id": variant["variant"],
+                    "preprocess_id": vid,
                 })
 
         aggregated: Dict[str, Dict[str, Any]] = {}
@@ -416,39 +421,41 @@ class PlateOCR:
             text = item["text"]
             entry = aggregated.setdefault(
                 text,
-                {"text": text, "total_score": 0.0, "confidences": [], "count": 0, "variants": set()},
+                {"text": text, "total_score": 0.0, "confidences": [], "variants": set()},
             )
             entry["total_score"] += item["score"]
             entry["confidences"].append(item["confidence"])
-            entry["count"] += 1
             entry["variants"].add(item["preprocess_id"])
 
         candidates: List[Dict[str, Any]] = []
         for entry in aggregated.values():
             avg_conf = float(np.mean(entry["confidences"])) if entry["confidences"] else 0.0
+            base_votes = len(set(entry["variants"]) & base_variant_ids)
+            consensus_ratio = base_votes / variant_count
+
             candidates.append({
                 "text": entry["text"],
-                "score": entry["total_score"],
+                "score": float(entry["total_score"]),
                 "avg_conf": avg_conf,
-                "count": entry["count"],
-                "consensus_ratio": entry["count"] / variant_count,
+                "count": int(base_votes),
+                "consensus_ratio": float(consensus_ratio),
             })
+
         candidates.sort(key=lambda c: c["score"], reverse=True)
 
         best = candidates[0] if candidates else {"text": "", "score": 0.0, "avg_conf": 0.0, "count": 0, "consensus_ratio": 0.0}
         second = candidates[1] if len(candidates) > 1 else None
+
         margin_ratio = 0.0
         if second and best["score"] > 0:
             margin_ratio = max(0.0, (best["score"] - second["score"]) / max(best["score"], 1e-6))
         elif best["score"] > 0:
             margin_ratio = 1.0
 
-
         best_variant = next(
             (
-                variant
-                for variant in sorted(variant_results, key=lambda v: v.get("score", 0.0), reverse=True)
-                if variant.get("plate_text") == best["text"]
+                v for v in sorted(variant_results, key=lambda x: x.get("score", 0.0), reverse=True)
+                if v.get("plate_text") == best["text"]
             ),
             variant_results[0] if variant_results else {},
         )
@@ -458,19 +465,11 @@ class PlateOCR:
             "score": best["score"],
             "avg_conf": best["avg_conf"],
             "consensus_ratio": best["consensus_ratio"],
-            "margin_ratio": margin_ratio,
-
+            "margin_ratio": float(margin_ratio),
             "variant": best_variant.get("variant", ""),
             "lines": best_variant.get("lines", []),
-
-
-            "variant": best_variant.get("variant", ""),
-            "lines": best_variant.get("lines", []),
-
-            "variant": variant_results[0]["variant"] if variant_results else "",
-            "lines": variant_results[0]["lines"] if variant_results else [],
-
         }
+
         return {
             "best": best_summary,
             "candidates": candidates,
@@ -492,6 +491,7 @@ class PlateOCR:
                     continue
                 if name not in candidate_map or score > candidate_map[name]:
                     candidate_map[name] = score
+
         if roi_province.get("province"):
             roi_score = float(roi_province.get("score") or 0.0)
             candidate_map[roi_province["province"]] = max(candidate_map.get(roi_province["province"], 0.0), roi_score)
@@ -502,6 +502,7 @@ class PlateOCR:
         ]
         best = candidates[0] if candidates else {"name": "", "score": 0.0}
         final_name = best["name"] if best["score"] >= self.province_min_score else ""
+
         return {
             "province": final_name,
             "candidates": candidates,
@@ -522,6 +523,7 @@ class PlateOCR:
             confidence *= 0.75
         if "confusable_chars" in flags:
             confidence *= 0.9
+
         return max(0.0, min(confidence, 0.97))
 
     def _should_debug(self, confidence: float, best: Dict[str, Any], aggregated: Dict[str, Any]) -> List[str]:
@@ -575,7 +577,10 @@ class PlateOCR:
     def _has_confusable_char(self, text: str) -> bool:
         return any(ch in _CONFUSABLE_CHARS for ch in text or "")
 
-    def _group_tokens_to_lines(self, detections: Sequence[Tuple[Any, str, float]]) -> Tuple[List[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+    def _group_tokens_to_lines(
+        self,
+        detections: Sequence[Tuple[Any, str, float]],
+    ) -> Tuple[List[List[Dict[str, Any]]], List[Dict[str, Any]]]:
         tokens: List[Dict[str, Any]] = []
         for box, text, conf in detections:
             cleaned = self._normalize_text(text)
@@ -606,6 +611,7 @@ class PlateOCR:
         clusters = sorted(clusters, key=lambda c: np.mean([x["y"] for x in c]))[:2]
         for cluster in clusters:
             cluster.sort(key=lambda c: c["x"])
+
         return clusters, tokens
 
     def _normalize_text(self, text: str) -> str:
@@ -650,4 +656,5 @@ class PlateOCR:
                 continue
             seen.add(variant)
             unique.append((variant, swaps, reduction))
+
         return unique[:6]
