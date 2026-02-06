@@ -35,6 +35,7 @@ DEFAULT_RECONNECT_SEC = float(os.getenv("RTSP_RECONNECT_SEC", "2.0"))
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "original").mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "crops").mkdir(parents=True, exist_ok=True)
+(STORAGE_DIR / "debug").mkdir(parents=True, exist_ok=True)
 
 
 # ----------------------------
@@ -102,7 +103,7 @@ def process_capture(capture_id: int, image_path: str):
         crop_path = det.crop_path
 
         # 2) OCR
-        o = ocr.read_plate(crop_path)
+        o = ocr.read_plate(crop_path, debug_dir=STORAGE_DIR / "debug", debug_id=str(capture_id))
         plate_text = (o.plate_text or "").strip()
         province = (o.province or "").strip()
         conf = float(o.confidence or 0.0)
@@ -236,6 +237,12 @@ def process_capture(capture_id: int, image_path: str):
             "province": province,
             "confidence": conf,
             "crop_path": str(crop_path),
+            "plate_candidates": raw.get("plate_candidates", []),
+            "province_candidates": raw.get("province_candidates", []),
+            "consensus_metrics": raw.get("consensus_metrics", {}),
+            "confidence_flags": raw.get("confidence_flags", []),
+            "debug_flags": raw.get("debug_flags", []),
+            "debug_artifacts": raw.get("debug_artifacts", {}),
         }
 
     except Exception as e:

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import itertools
+import json
 import logging
+import os
 import re
+from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import cv2
 import easyocr
 import numpy as np
 import torch
 
-from .provinces import match_province, normalize_province
+from .provinces import match_province, normalize_province, province_candidates
 from .validate import is_valid_plate
 
 log = logging.getLogger(__name__)
@@ -21,8 +24,9 @@ _THAI_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณด�
 _THAI_ONLY_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ"
 _THAI_CONFUSION_MAP = {
     "ผ": ("ข", "พ"),
-    "ข": ("ฆ", "ผ"),
-    "ฆ": ("ข",),
+    "ข": ("ฆ", "ผ", "ม"),
+    "ฆ": ("ข", "ม"),
+    "ม": ("ข", "ฆ"),
     "พ": ("ผ",),
     "ฝ": ("ฟ", "ผ"),
     "ฟ": ("ฝ",),
@@ -44,7 +48,28 @@ _THAI_CONFUSION_MAP = {
 _THAI_CONFUSION_PENALTY_REDUCTION = {
     ("ข", "ฆ"): 0.04,
     ("ฆ", "ข"): 0.04,
+    ("ข", "ม"): 0.03,
+    ("ม", "ข"): 0.03,
+    ("ฆ", "ม"): 0.03,
+    ("ม", "ฆ"): 0.03,
 }
+_CONFUSABLE_CHARS = set("ขฆม")
+
+_DEFAULT_VARIANT_LIMIT = 6
+_DEFAULT_VARIANT_NAMES = (
+    "gray",
+    "clahe",
+    "adaptive",
+    "otsu",
+    "upscale_x2",
+    "upscale_adaptive_x2",
+    "upscale_otsu_x2",
+)
+_DEFAULT_TOP_K = 3
+_DEFAULT_CONSENSUS_MIN = 0.55
+_DEFAULT_MARGIN_MIN = 0.16
+_DEFAULT_DEBUG_CONFIDENCE_THRESHOLD = 0.62
+_DEFAULT_PROVINCE_MIN_SCORE = 65.0
 
 
 @dataclass
@@ -60,59 +85,106 @@ class PlateOCR:
         use_gpu = torch.cuda.is_available()
         self.reader = easyocr.Reader(["th", "en"], gpu=use_gpu, verbose=False)
         self.thai_reader = easyocr.Reader(["th"], gpu=use_gpu, verbose=False)
+        self.variant_names = self._load_variant_names()
+        self.variant_limit = int(os.getenv("OCR_VARIANT_LIMIT", str(_DEFAULT_VARIANT_LIMIT)))
+        self.top_k = int(os.getenv("OCR_TOP_K", str(_DEFAULT_TOP_K)))
+        self.consensus_min = float(os.getenv("OCR_CONSENSUS_MIN", str(_DEFAULT_CONSENSUS_MIN)))
+        self.margin_min = float(os.getenv("OCR_MARGIN_MIN", str(_DEFAULT_MARGIN_MIN)))
+        self.debug_confidence_threshold = float(
+            os.getenv("OCR_DEBUG_CONFIDENCE_THRESHOLD", str(_DEFAULT_DEBUG_CONFIDENCE_THRESHOLD))
+        )
+        self.province_min_score = float(os.getenv("OCR_PROVINCE_MIN_SCORE", str(_DEFAULT_PROVINCE_MIN_SCORE)))
+
+    def _load_variant_names(self) -> List[str]:
+        raw = os.getenv("OCR_VARIANTS", "")
+        if not raw:
+            return list(_DEFAULT_VARIANT_NAMES)
+        names = [name.strip() for name in raw.split(",") if name.strip()]
+        return names or list(_DEFAULT_VARIANT_NAMES)
 
     def read(self, crop_path: str) -> OCRResult:
         return self.read_plate(crop_path)
 
-    def read_plate(self, crop_path: str) -> OCRResult:
+    def read_plate(self, crop_path: str, debug_dir: Optional[Path] = None, debug_id: Optional[str] = None) -> OCRResult:
         img = cv2.imread(crop_path)
         if img is None:
             raise RuntimeError(f"Cannot read crop: {crop_path}")
 
-        best: Dict[str, Any] = {
-            "plate_text": "",
-            "province": "",
-            "confidence": 0.0,
-            "score": -1.0,
-            "variant": "",
-            "lines": [],
-            "candidates": [],
-            "line_province_score": 0.0,
-        }
-
+        variant_results: List[Dict[str, Any]] = []
         for variant_name, variant_img in self._build_variants(img):
             detections = self.reader.readtext(variant_img, detail=1, allowlist=_THAI_ALLOWLIST)
             candidate = self._evaluate_variant(variant_name, detections)
-            if candidate["score"] > best["score"]:
-                best = candidate
+            variant_results.append(candidate)
+
+        aggregated = self._aggregate_plate_candidates(variant_results)
+        best = aggregated["best"]
 
         roi_province = self._province_roi_pass(img)
-        final_province = best["province"]
-        if roi_province["province"]:
-            roi_score = float(roi_province.get("score") or 0.0)
-            line_score = float(best.get("line_province_score") or 0.0)
-            if not final_province or roi_score >= max(70.0, line_score + 5.0):
-                final_province = roi_province["province"]
-                
-        confidence = max(0.0, min(float(best["confidence"]), 1.0))
+        province_info = self._aggregate_province_candidates(variant_results, roi_province)
+        final_province = province_info["province"]
+
+        flags: List[str] = []
+        if best["consensus_ratio"] < self.consensus_min or best["margin_ratio"] < self.margin_min:
+            flags.append("low_consensus")
+        if self._has_confusable_char(best["text"]):
+            flags.append("confusable_chars")
+        if best["text"]:
+            flags.append("plate_present")
+
+        confidence = self._calibrate_confidence(best, flags)
         if confidence < 0.6:
             log.warning(
-                "Low OCR confidence variant=%s candidates=%s",
-                best["variant"],
-                best["candidates"][:3],
+                "Low OCR confidence variants=%s candidates=%s",
+                [v["variant"] for v in variant_results],
+                aggregated["candidates"][:3],
             )
 
+        debug_flags = self._should_debug(confidence, best, aggregated)
+        debug_artifacts = {}
+        if debug_flags and debug_dir:
+            debug_artifacts = self._save_debug_artifacts(
+                debug_dir=debug_dir,
+                debug_id=debug_id or Path(crop_path).stem,
+                image=img,
+                variant_images=self._build_variants(img),
+                aggregated=aggregated,
+                province_info=province_info,
+                flags=debug_flags,
+            )
+
+        display_text = self._format_plate_display(best["text"])
+        plate_candidates = [
+            {
+                "text": self._format_plate_display(cand["text"]),
+                "normalized_text": cand["text"],
+                "score": cand["score"],
+                "preprocess_id": "consensus",
+            }
+            for cand in aggregated["candidates"]
+        ]
         return OCRResult(
-            plate_text=best["plate_text"],
+            plate_text=display_text,
             province=final_province,
             confidence=confidence,
             raw={
-                "chosen_variant": best["variant"],
-                "lines": best["lines"],
-                "candidates": best["candidates"],
-                "line_province": best["province"],
-                "line_province_score": best["line_province_score"],
+                "chosen_variant": best.get("variant"),
+                "lines": best.get("lines", []),
+                "candidates": aggregated["candidates"],
+                "variant_candidates": aggregated["variant_candidates"],
+                "plate_text_normalized": best["text"],
+                "line_province": province_info.get("line_province", ""),
+                "line_province_score": province_info.get("line_province_score", 0.0),
                 "roi_province": roi_province,
+                "plate_candidates": plate_candidates[: self.top_k],
+                "province_candidates": province_info["candidates"][: self.top_k],
+                "consensus_metrics": {
+                    "consensus_ratio": best["consensus_ratio"],
+                    "margin_ratio": best["margin_ratio"],
+                    "variant_count": aggregated["variant_count"],
+                },
+                "confidence_flags": flags,
+                "debug_flags": debug_flags,
+                "debug_artifacts": debug_artifacts,
             },
         )
 
@@ -124,7 +196,7 @@ class PlateOCR:
         up2 = cv2.resize(clahe, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
         up2_adaptive = cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
         up2_otsu = cv2.resize(otsu, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
-        return [
+        variants = [
             ("gray", gray),
             ("clahe", clahe),
             ("adaptive", adaptive),
@@ -133,6 +205,11 @@ class PlateOCR:
             ("upscale_adaptive_x2", up2_adaptive),
             ("upscale_otsu_x2", up2_otsu),
         ]
+        if self.variant_names:
+            variants = [variant for variant in variants if variant[0] in self.variant_names]
+        if self.variant_limit:
+            variants = variants[: self.variant_limit]
+        return variants
 
     def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
         lines, tokens = self._group_tokens_to_lines(detections)
@@ -143,11 +220,9 @@ class PlateOCR:
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
-        province, province_score = match_province(bottom_line)
-        if not province:
-            merged = "".join(line_texts)
-            province, province_score = match_province(merged, threshold=64)
-        province = normalize_province(province or bottom_line, threshold=64)
+        province_candidates_list = self._province_candidates_from_lines(line_texts)
+        province = province_candidates_list[0]["name"] if province_candidates_list else ""
+        province_score = province_candidates_list[0]["score"] if province_candidates_list else 0.0
 
         score = best_plate["score"] + (0.08 if province else 0.0)
         return {
@@ -159,6 +234,7 @@ class PlateOCR:
             "line_province_score": province_score,
             "lines": line_texts,
             "candidates": plate_candidates,
+            "province_candidates": province_candidates_list,
             "tokens": tokens,
         }
 
@@ -170,22 +246,24 @@ class PlateOCR:
         confs = [float(t["conf"]) for t in tokens] or [0.0]
         base_conf = float(np.mean(confs))
         valid_bonus = 0.25 if is_valid_plate(normalized) else 0.0
+        format_adjust = self._plate_format_adjustment(normalized)
 
         candidates = [{
             "name": "top_line",
             "text": normalized,
-            "confidence": max(0.0, min(base_conf + valid_bonus, 1.0)),
-            "score": base_conf + valid_bonus,
+            "confidence": max(0.0, min(base_conf + valid_bonus + format_adjust, 1.0)),
+            "score": base_conf + valid_bonus + format_adjust,
         }]
 
         for alt_text, swaps, reduction in self._expand_confusion_candidates(normalized):
             penalty = max(0.01, (0.06 * swaps) - reduction)
             alt_bonus = 0.1 if is_valid_plate(alt_text) else 0.0
+            alt_format = self._plate_format_adjustment(alt_text)
             candidates.append({
                 "name": f"confusion_swap_{swaps}",
                 "text": alt_text,
-                "confidence": max(0.0, min(base_conf + valid_bonus + alt_bonus - penalty, 1.0)),
-                "score": base_conf + valid_bonus + alt_bonus - penalty,
+                "confidence": max(0.0, min(base_conf + valid_bonus + alt_bonus + alt_format - penalty, 1.0)),
+                "score": base_conf + valid_bonus + alt_bonus + alt_format - penalty,
             })
 
         if re.match(r"^[ก-ฮ]{1,2}\d{4}$", normalized):
@@ -207,6 +285,7 @@ class PlateOCR:
         if roi.size == 0:
             return {"province": "", "score": 0.0, "variant": "", "texts": []}
 
+        roi_threshold = max(50, int(self.province_min_score - 7))
         best = {"province": "", "score": 0.0, "variant": "", "texts": []}
         for name, variant in self._build_province_roi_variants(roi):
             detections = self.thai_reader.readtext(variant, detail=1, allowlist=_THAI_ONLY_ALLOWLIST)
@@ -215,8 +294,8 @@ class PlateOCR:
             if not texts:
                 continue
             for text in ["".join(texts)] + texts:
-                province, score = match_province(text, threshold=58)
-                province = normalize_province(province or text, threshold=58)
+                province, score = match_province(text, threshold=roi_threshold)
+                province = normalize_province(province or text, threshold=roi_threshold)
                 if province and score > best["score"]:
                     best = {"province": province, "score": float(score), "variant": name, "texts": texts}
         return best
@@ -228,6 +307,197 @@ class PlateOCR:
         sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
         adaptive = cv2.adaptiveThreshold(sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
         return [("roi_upscale", up), ("roi_clahe_sharpen", sharpen), ("roi_adaptive", adaptive)]
+
+    def _plate_format_adjustment(self, text: str) -> float:
+        if re.match(r"^[ก-ฮ]{2}\d{1,4}$", text):
+            return 0.08
+        if re.match(r"^[ก-ฮ]{1,2}\d{1,4}$", text):
+            return 0.02
+        return -0.08
+
+    def _format_plate_display(self, text: str) -> str:
+        match = re.match(r"^([ก-ฮ]{1,2})(\d{1,4})$", text or "")
+        if not match:
+            return text or ""
+        prefix, digits = match.groups()
+        return f"{prefix} {digits}"
+
+    def _province_candidates_from_lines(self, line_texts: List[str]) -> List[Dict[str, Any]]:
+        bottom_line = line_texts[1] if len(line_texts) > 1 else ""
+        merged = "".join(line_texts)
+        candidates = []
+        for text in (bottom_line, merged):
+            if not text:
+                continue
+            for name, score in province_candidates(text, limit=self.top_k, threshold=int(self.province_min_score)):
+                candidates.append({"name": normalize_province(name, threshold=int(self.province_min_score)), "score": float(score)})
+        deduped: Dict[str, float] = {}
+        for item in candidates:
+            if not item["name"]:
+                continue
+            if item["name"] not in deduped or item["score"] > deduped[item["name"]]:
+                deduped[item["name"]] = item["score"]
+        return [
+            {"name": name, "score": score}
+            for name, score in sorted(deduped.items(), key=lambda item: item[1], reverse=True)
+        ]
+
+    def _aggregate_plate_candidates(self, variant_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        variant_count = max(len(variant_results), 1)
+        flat: List[Dict[str, Any]] = []
+        for variant in variant_results:
+            for cand in variant.get("candidates", [])[: self.top_k]:
+                flat.append({
+                    "text": cand["text"],
+                    "score": float(cand["score"]),
+                    "confidence": float(cand["confidence"]),
+                    "preprocess_id": variant["variant"],
+                })
+
+        aggregated: Dict[str, Dict[str, Any]] = {}
+        for item in flat:
+            text = item["text"]
+            entry = aggregated.setdefault(
+                text,
+                {"text": text, "total_score": 0.0, "confidences": [], "count": 0, "variants": set()},
+            )
+            entry["total_score"] += item["score"]
+            entry["confidences"].append(item["confidence"])
+            entry["count"] += 1
+            entry["variants"].add(item["preprocess_id"])
+
+        candidates: List[Dict[str, Any]] = []
+        for entry in aggregated.values():
+            avg_conf = float(np.mean(entry["confidences"])) if entry["confidences"] else 0.0
+            candidates.append({
+                "text": entry["text"],
+                "score": entry["total_score"],
+                "avg_conf": avg_conf,
+                "count": entry["count"],
+                "consensus_ratio": entry["count"] / variant_count,
+            })
+        candidates.sort(key=lambda c: c["score"], reverse=True)
+
+        best = candidates[0] if candidates else {"text": "", "score": 0.0, "avg_conf": 0.0, "count": 0, "consensus_ratio": 0.0}
+        second = candidates[1] if len(candidates) > 1 else None
+        margin_ratio = 0.0
+        if second and best["score"] > 0:
+            margin_ratio = max(0.0, (best["score"] - second["score"]) / max(best["score"], 1e-6))
+        elif best["score"] > 0:
+            margin_ratio = 1.0
+
+        best_summary = {
+            "text": best["text"],
+            "score": best["score"],
+            "avg_conf": best["avg_conf"],
+            "consensus_ratio": best["consensus_ratio"],
+            "margin_ratio": margin_ratio,
+            "variant": variant_results[0]["variant"] if variant_results else "",
+            "lines": variant_results[0]["lines"] if variant_results else [],
+        }
+        return {
+            "best": best_summary,
+            "candidates": candidates,
+            "variant_candidates": flat,
+            "variant_count": variant_count,
+        }
+
+    def _aggregate_province_candidates(
+        self,
+        variant_results: List[Dict[str, Any]],
+        roi_province: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        candidate_map: Dict[str, float] = {}
+        for variant in variant_results:
+            for item in variant.get("province_candidates", []):
+                name = item["name"]
+                score = float(item["score"])
+                if not name:
+                    continue
+                if name not in candidate_map or score > candidate_map[name]:
+                    candidate_map[name] = score
+        if roi_province.get("province"):
+            roi_score = float(roi_province.get("score") or 0.0)
+            candidate_map[roi_province["province"]] = max(candidate_map.get(roi_province["province"], 0.0), roi_score)
+
+        candidates = [
+            {"name": name, "score": score}
+            for name, score in sorted(candidate_map.items(), key=lambda item: item[1], reverse=True)
+        ]
+        best = candidates[0] if candidates else {"name": "", "score": 0.0}
+        final_name = best["name"] if best["score"] >= self.province_min_score else ""
+        return {
+            "province": final_name,
+            "candidates": candidates,
+            "line_province": best["name"],
+            "line_province_score": best["score"],
+        }
+
+    def _calibrate_confidence(self, best: Dict[str, Any], flags: List[str]) -> float:
+        base_conf = max(0.0, min(float(best.get("avg_conf", 0.0)), 1.0))
+        consensus_ratio = float(best.get("consensus_ratio") or 0.0)
+        margin_ratio = float(best.get("margin_ratio") or 0.0)
+
+        consensus_factor = 0.6 + 0.4 * min(1.0, consensus_ratio)
+        margin_factor = 0.6 + 0.4 * min(1.0, margin_ratio * 2.0)
+        confidence = base_conf * consensus_factor * margin_factor
+
+        if "low_consensus" in flags:
+            confidence *= 0.75
+        if "confusable_chars" in flags:
+            confidence *= 0.9
+        return max(0.0, min(confidence, 0.97))
+
+    def _should_debug(self, confidence: float, best: Dict[str, Any], aggregated: Dict[str, Any]) -> List[str]:
+        flags: List[str] = []
+        if confidence < self.debug_confidence_threshold:
+            flags.append("low_confidence")
+        if best.get("consensus_ratio", 0.0) < self.consensus_min:
+            flags.append("low_consensus")
+        if self._has_confusable_char(best.get("text", "")):
+            flags.append("confusable_chars")
+        if len(aggregated.get("candidates", [])) > 1:
+            second = aggregated["candidates"][1]
+            if best.get("score", 0.0) and (best["score"] - second["score"]) / max(best["score"], 1e-6) < self.margin_min:
+                flags.append("tight_margin")
+        return flags
+
+    def _save_debug_artifacts(
+        self,
+        debug_dir: Path,
+        debug_id: str,
+        image: np.ndarray,
+        variant_images: List[Tuple[str, np.ndarray]],
+        aggregated: Dict[str, Any],
+        province_info: Dict[str, Any],
+        flags: List[str],
+    ) -> Dict[str, Any]:
+        debug_root = Path(debug_dir) / debug_id
+        debug_root.mkdir(parents=True, exist_ok=True)
+
+        artifact_paths: Dict[str, str] = {}
+        original_path = debug_root / "crop.png"
+        cv2.imwrite(str(original_path), image)
+        artifact_paths["crop"] = str(original_path)
+
+        for name, variant in variant_images:
+            path = debug_root / f"{name}.png"
+            cv2.imwrite(str(path), variant)
+            artifact_paths[name] = str(path)
+
+        summary_path = debug_root / "ocr_summary.json"
+        summary = {
+            "flags": flags,
+            "plate_candidates": aggregated.get("candidates", [])[: self.top_k],
+            "province_candidates": province_info.get("candidates", [])[: self.top_k],
+        }
+        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        artifact_paths["summary"] = str(summary_path)
+
+        return {"dir": str(debug_root), "artifacts": artifact_paths}
+
+    def _has_confusable_char(self, text: str) -> bool:
+        return any(ch in _CONFUSABLE_CHARS for ch in text or "")
 
     def _group_tokens_to_lines(self, detections: Sequence[Tuple[Any, str, float]]) -> Tuple[List[List[Dict[str, Any]]], List[Dict[str, Any]]]:
         tokens: List[Dict[str, Any]] = []
