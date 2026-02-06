@@ -150,83 +150,108 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
   return (
     <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-4 shadow-lg shadow-blue-950/10">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[520px_minmax(0,1fr)]">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">Original</div>
-            <img className="h-40 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.original_url)} />
+        <div className="rounded-2xl border border-blue-300/15 bg-slate-950/40 p-3">
+          <div className="flex items-center justify-between pb-2">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-400">หลักฐานภาพ</div>
+              <div className="text-xs text-slate-500">ดูภาพรวมและภาพป้ายเพื่อยืนยัน</div>
+            </div>
           </div>
-          <div>
-            <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">Crop plate</div>
-            <img className="h-40 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.crop_url)} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">Original</div>
+              <img className="h-48 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.original_url)} />
+            </div>
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">Crop plate</div>
+              <img className="h-48 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.crop_url)} />
+            </div>
           </div>
         </div>
 
         <div className="space-y-3" onKeyDown={onKeyDown} tabIndex={0}>
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-400">OCR Confidence</div>
-            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
-              {(r.confidence ?? 0).toFixed(3)}
-            </span>
+          <div className="rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm text-slate-300">ผล OCR</div>
+                <div className="text-xs text-slate-500">Enter = ยืนยัน, Ctrl+Enter = บันทึกแก้ไข</div>
+              </div>
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
+                {(r.confidence ?? 0).toFixed(3)}
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="text-sm font-medium text-slate-200">
               Plate
               <input className="input-dark" value={t} onChange={(e) => setT(e.target.value)} />
-              
-              {/* ✅ Quick Fix Buttons สำหรับป้ายทะเบียน */}
-              <div className="mt-2 flex flex-wrap gap-1">
-                <span className="text-xs text-slate-400">Quick fix:</span>
-                {commonFixes.map(fix => (
-                  <button
-                    key={fix.label}
-                    type="button"
-                    title={fix.desc}
-                    className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
-                    onClick={() => applyFix(fix.from, fix.to)}
-                  >
-                    {fix.label}
-                  </button>
-                ))}
+
+              <div className="mt-2">
+                <div className="text-xs text-slate-400">Quick fix:</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {commonFixes.map((fix) => (
+                    <button
+                      key={fix.label}
+                      type="button"
+                      title={fix.desc}
+                      className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+                      onClick={() => applyFix(fix.from, fix.to)}
+                    >
+                      {fix.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </label>
 
             <label className="text-sm font-medium text-slate-200">
               Province
-              <input className="input-dark" placeholder="ยังอ่านจังหวัดไม่ได้" value={p} onChange={(e) => setP(e.target.value)} />
-              
-              {/* ✅ Province Quick Select */}
-              <div className="mt-2 flex flex-wrap gap-1">
-                <span className="text-xs text-slate-400">Quick:</span>
-                {provinceShortcuts.map(prov => (
-                  <button
-                    key={prov.value}
-                    type="button"
-                    title={prov.value}
-                    className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
-                    onClick={() => setP(prov.value)}
-                  >
-                    {prov.icon} {prov.label}
-                  </button>
-                ))}
+              <input
+                className={`input-dark ${provinceMissing ? 'border-amber-300/50 bg-amber-500/5' : ''}`}
+                placeholder="ยังอ่านจังหวัดไม่ได้"
+                value={p}
+                onChange={(e) => setP(e.target.value)}
+              />
+
+              <div className="mt-2">
+                <div className="text-xs text-slate-400">Quick:</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {provinceShortcuts.map((prov) => (
+                    <button
+                      key={prov.value}
+                      type="button"
+                      title={prov.value}
+                      className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+                      onClick={() => setP(prov.value)}
+                    >
+                      {prov.icon} {prov.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              
+
               {provinceMissing && <div className="mt-1 text-xs text-amber-200">ยังอ่านจังหวัดไม่ได้ - สามารถยืนยันหรือแก้ไขได้</div>}
             </label>
           </div>
 
           <label className="text-sm font-medium text-slate-200">
             Note
-            <input className="input-dark" value={note} onChange={(e) => setNote(e.target.value)} />
+            <input
+              className="input-dark"
+              placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
           </label>
 
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3">
             <button disabled={busy} onClick={onConfirm} className="btn-blue disabled:opacity-50">
-              ✓ Confirm 
+              ✓ Confirm
               <kbd className="ml-1 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
             </button>
             <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft disabled:opacity-50">
-              💾 Save correction 
+              💾 Save correction
               <kbd className="ml-1 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
             </button>
             <button type="button" className="btn-soft" onClick={() => setT(normalizePlateText(t))}>
