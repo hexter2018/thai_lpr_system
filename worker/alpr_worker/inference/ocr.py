@@ -16,8 +16,9 @@ log = logging.getLogger(__name__)
 
 _THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 _THAI_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ0123456789"
-_PLATE_FULL_RE = re.compile(r"^\d[ก-ฮ]{1,2}\d{4}$")
-_PLATE_FALLBACK_RE = re.compile(r"^[ก-ฮ]{2}\d{4}$")
+_THAI_PROVINCE_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ"
+_PLATE_FULL_RE = re.compile(r"^\d{0,2}[ก-ฮ]{1,3}\d{1,4}$")
+_PLATE_FALLBACK_RE = re.compile(r"^[ก-ฮ]{1,3}\d{1,4}$")
 
 
 @dataclass
@@ -59,17 +60,20 @@ class PlateOCR:
             "confidence": 0.0,
         }
 
+        all_variant_candidates: List[Dict[str, Any]] = []
         for variant_name, variant_img in variants:
             detections = self.reader.readtext(variant_img, detail=1, allowlist=_THAI_ALLOWLIST)
             candidate = self._evaluate_variant(variant_name, detections)
+            all_variant_candidates.extend(candidate["candidates"])
             if candidate["score"] > best["score"]:
                 best = candidate
 
         province_roi = self._read_province_from_roi(img)
         final_province = best["line_province"] or best["province"]
-        if province_roi["province"]:
+        if province_roi["province"] and province_roi["score"] >= best["line_province_score"]:
             final_province = province_roi["province"]
 
+        top_candidates = sorted(all_variant_candidates, key=lambda c: c.get("score", 0.0), reverse=True)[:5]
         return OCRResult(
             plate_text=best["plate_text"],
             province=final_province,
@@ -78,9 +82,11 @@ class PlateOCR:
                 "chosen_variant": best["variant"],
                 "lines": best["lines"],
                 "line_province_score": best["line_province_score"],
+                "province_match_score": province_roi.get("score", 0.0),
                 "roi_province": province_roi,
                 "tokens": best["tokens"],
                 "candidates": best["candidates"],
+                "top_candidates": top_candidates,
                 "leading_digit_recovery": best["recovery_applied"],
             },
         )
@@ -88,10 +94,12 @@ class PlateOCR:
     def _build_variants(self, image: np.ndarray) -> List[Tuple[str, np.ndarray]]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         clahe = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(8, 8)).apply(gray)
-        sharpened = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
+        blur = cv2.bilateralFilter(clahe, 7, 50, 50)
+        sharpened = cv2.addWeighted(clahe, 1.55, blur, -0.55, 0)
         adaptive = cv2.adaptiveThreshold(sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 4)
         otsu = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
 
+        # Multi-pass OCR over original + contrast + thresholded variants improves difficult crops.
         return [
             ("gray", gray),
             ("clahe", clahe),
@@ -99,7 +107,7 @@ class PlateOCR:
             ("adaptive", adaptive),
             ("otsu", otsu),
             ("upscale_sharpened_x2", cv2.resize(sharpened, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)),
-            ("upscale_adaptive_x2", cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)),
+            ("upscale_adaptive_x3", cv2.resize(adaptive, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)),
         ]
 
     def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
@@ -111,20 +119,17 @@ class PlateOCR:
         plate_candidate, plate_confidence, recovery_applied, candidates = self._reconstruct_plate(top_tokens, bottom_tokens)
 
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
-        line_province, line_province_score = match_province(bottom_line)
-        merged_line_province, merged_score = match_province("".join(line_texts))
+        line_province, line_province_score = match_province(bottom_line, threshold=60)
+        merged_line_province, merged_score = match_province("".join(line_texts), threshold=60)
         if merged_score > line_province_score:
             line_province = merged_line_province
             line_province_score = merged_score
 
-        score = plate_confidence
-        if line_province:
-            score += 0.08
-
+        score = plate_confidence + (0.06 if line_province else 0.0)
         return {
             "variant": variant_name,
             "plate_text": plate_candidate,
-            "province": normalize_province(bottom_line),
+            "province": normalize_province(bottom_line, threshold=60),
             "line_province": line_province,
             "line_province_score": line_province_score,
             "score": score,
@@ -144,15 +149,17 @@ class PlateOCR:
                 return
             confs = [float(t["conf"]) for t in tokens if t.get("text")]
             base_conf = float(np.mean(confs)) if confs else 0.0
-            regex_bonus = 0.22 if _PLATE_FULL_RE.match(norm_text) else 0.12 if _PLATE_FALLBACK_RE.match(norm_text) else 0.0
-            recovery_penalty = 0.08 if recovered else 0.0
-            cand_score = base_conf + regex_bonus - recovery_penalty
+            format_score = self._plate_format_score(norm_text)
+            regex_bonus = 0.20 if _PLATE_FULL_RE.match(norm_text) else 0.10 if _PLATE_FALLBACK_RE.match(norm_text) else 0.0
+            recovery_penalty = 0.07 if recovered else 0.0
+            cand_score = (base_conf * 0.75) + (format_score * 0.25) + regex_bonus - recovery_penalty
             candidates.append(
                 {
                     "name": name,
                     "text": norm_text,
                     "score": cand_score,
                     "base_conf": base_conf,
+                    "format_score": format_score,
                     "regex_bonus": regex_bonus,
                     "recovered": recovered,
                     "token_count": len(tokens),
@@ -164,7 +171,7 @@ class PlateOCR:
         add_candidate("top_line", top_text, top_tokens)
         add_candidate("top_plus_bottom", top_text + bottom_text, top_tokens + bottom_tokens)
 
-        # Recover missing leading digit token (e.g., ขช5148 + isolated "4" on the left)
+        # Recover missing leading class digit token (e.g., ขช5148 + isolated "4" on the left).
         recovery_applied = False
         for cand in list(candidates):
             if not _PLATE_FALLBACK_RE.match(cand["text"]):
@@ -175,7 +182,7 @@ class PlateOCR:
             digit_tokens = [
                 t
                 for t in top_tokens
-                if re.fullmatch(r"\d", t["text"] or "") and t["x"] < first_thai_x and float(t["conf"]) >= 0.35
+                if re.fullmatch(r"\d", t["text"] or "") and t["x"] < first_thai_x and float(t["conf"]) >= 0.30
             ]
             if not digit_tokens:
                 continue
@@ -187,82 +194,96 @@ class PlateOCR:
         if not candidates:
             return "", 0.0, False, []
 
-        candidates.sort(key=lambda c: (c["score"], 1 if _PLATE_FULL_RE.match(c["text"]) else 0), reverse=True)
+        candidates.sort(key=lambda c: (c["score"], self._plate_format_score(c["text"])), reverse=True)
         best = candidates[0]
-
-        confidence = max(0.0, min(best["score"], 1.0))
-        if _PLATE_FULL_RE.match(best["text"]):
-            confidence = min(1.0, confidence + 0.06)
-
+        confidence = max(0.0, min(float(best["score"]), 1.0))
         return best["text"], confidence, bool(best["recovered"] or recovery_applied), candidates
+
+    def _plate_format_score(self, text: str) -> float:
+        txt = self._normalize_plate(text)
+        if not txt:
+            return 0.0
+        thai_count = len(re.findall(r"[ก-ฮ]", txt))
+        digit_count = len(re.findall(r"\d", txt))
+        score = 0.0
+        if thai_count > 0 and digit_count > 0:
+            score += 0.55
+        if 5 <= len(txt) <= 8:
+            score += 0.20
+        if _PLATE_FULL_RE.match(txt):
+            score += 0.25
+        elif _PLATE_FALLBACK_RE.match(txt):
+            score += 0.12
+        return min(score, 1.0)
 
     def _read_province_from_roi(self, image: np.ndarray) -> Dict[str, Any]:
         h, w = image.shape[:2]
-        roi_ratios = [0.50, 0.40, 0.35]
+        start_y = int(h * 0.70)
+        roi = image[start_y:h, 0:w]
+        if roi.size == 0:
+            return {"province": "", "score": 0.0, "roi_ratio": 0.30}
 
         best_province = ""
         best_score = 0.0
-        best_debug: Dict[str, Any] = {}
+        best_debug: Dict[str, Any] = {"roi_ratio": 0.30}
 
-        for ratio in roi_ratios:
-            start_y = int(h * (1.0 - ratio))
-            roi = image[start_y:h, 0:w]
-            if roi.size == 0:
+        for variant_name, variant in self._build_province_roi_variants(roi):
+            texts = self._read_text_tokens(self.thai_reader, variant, allowlist=_THAI_PROVINCE_ALLOWLIST, thai_only=True)
+            if not texts:
                 continue
-            for variant_name, variant in self._build_province_roi_variants(roi):
-                texts = self._read_text_tokens(self.thai_reader, variant, thai_only=True)
-                if not texts:
-                    continue
 
-                candidates = ["".join(texts)] + texts
-                for text in candidates:
-                    province, score = match_province(text, threshold=58)
-                    if score < 58:
-                        thai_only_text = re.sub(r"[^ก-๙]", "", text)
-                        province, score = match_province(thai_only_text, threshold=54)
-                    province = normalize_province(province or text, threshold=54)
-                    if province and score > best_score:
-                        best_province = province
-                        best_score = float(score)
-                        best_debug = {
-                            "roi_ratio": ratio,
-                            "variant": variant_name,
-                            "texts": texts,
-                            "source_text": text,
-                        }
+            candidates = ["".join(texts)] + texts
+            for text in candidates:
+                normalized_text = self._normalize_province_text(text)
+                province, score = match_province(normalized_text, threshold=60)
+                if province and score > best_score:
+                    best_province = province
+                    best_score = float(score)
+                    best_debug = {
+                        "roi_ratio": 0.30,
+                        "variant": variant_name,
+                        "texts": texts,
+                        "source_text": text,
+                        "normalized_text": normalized_text,
+                    }
 
         return {"province": best_province, "score": best_score, **best_debug}
 
     def _build_province_roi_variants(self, roi: np.ndarray) -> List[Tuple[str, np.ndarray]]:
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        upscaled = cv2.resize(gray, None, fx=2.6, fy=2.6, interpolation=cv2.INTER_CUBIC)
+        upscaled = cv2.resize(gray, None, fx=2.8, fy=2.8, interpolation=cv2.INTER_CUBIC)
         clahe = cv2.createCLAHE(clipLimit=3.2, tileGridSize=(8, 8)).apply(upscaled)
-        sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5.2, -1], [0, -1, 0]], dtype=np.float32))
+        blur = cv2.bilateralFilter(clahe, 7, 45, 45)
+        sharpen = cv2.addWeighted(clahe, 1.5, blur, -0.5, 0)
 
         kernel = np.ones((2, 2), np.uint8)
         morph_close = cv2.morphologyEx(sharpen, cv2.MORPH_CLOSE, kernel, iterations=1)
-        morph_open = cv2.morphologyEx(morph_close, cv2.MORPH_OPEN, kernel, iterations=1)
-
-        adaptive = cv2.adaptiveThreshold(morph_open, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
-        otsu = cv2.threshold(morph_open, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        adaptive = cv2.adaptiveThreshold(morph_close, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
+        otsu = cv2.threshold(morph_close, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
         return [
             ("gray_upscaled", upscaled),
             ("clahe", clahe),
-            ("morph_open", morph_open),
+            ("morph_close", morph_close),
             ("adaptive", adaptive),
             ("otsu", otsu),
         ]
 
-    def _read_text_tokens(self, reader: easyocr.Reader, image: np.ndarray, thai_only: bool = False) -> List[str]:
+    def _read_text_tokens(
+        self,
+        reader: easyocr.Reader,
+        image: np.ndarray,
+        allowlist: str | None = None,
+        thai_only: bool = False,
+    ) -> List[str]:
         kwargs: Dict[str, Any] = {"detail": 1}
-        if thai_only:
-            kwargs["allowlist"] = _THAI_ALLOWLIST
+        if allowlist:
+            kwargs["allowlist"] = allowlist
         detections = reader.readtext(image, **kwargs)
         tokens: List[str] = []
         for _, text, conf in detections:
             if conf is None or float(conf) < 0.10:
                 continue
-            cleaned = self._normalize_plate(text or "")
+            cleaned = self._normalize_province_text(text or "") if thai_only else self._normalize_plate(text or "")
             if cleaned:
                 tokens.append(cleaned)
         return tokens
@@ -314,4 +335,12 @@ class PlateOCR:
         norm = norm.translate(_THAI_DIGIT_MAP)
         norm = re.sub(r"[\s\-_.]", "", norm)
         norm = re.sub(r"[^0-9ก-๙]", "", norm)
+        return norm
+
+    def _normalize_province_text(self, text: str) -> str:
+        norm = (text or "").strip()
+        norm = norm.translate(_THAI_DIGIT_MAP)
+        norm = re.sub(r"[\s\-_.]", "", norm)
+        norm = norm.replace("ฯ", "")
+        norm = re.sub(r"[^ก-๙]", "", norm)
         return norm
