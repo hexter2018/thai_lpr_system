@@ -163,9 +163,6 @@ class PlateOCR:
                 flags=debug_flags,
             )
 
-
-            )
-
         debug_flags = self._should_debug(confidence, best, aggregated)
         debug_artifacts = {}
         if debug_flags and debug_dir:
