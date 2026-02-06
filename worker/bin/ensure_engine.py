@@ -113,7 +113,7 @@ def build_engine(
     fp16: bool,
     workspace: int,
     workspace_mode: Literal["mempool", "workspace", "none"],
-) -> tuple[bool, str]:
+) -> None:
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "trtexec",
@@ -121,12 +121,14 @@ def build_engine(
         f"--saveEngine={engine_path}",
     ]
     if workspace_mode == "mempool":
+<<<<<<< HEAD
         # TensorRT v10+ uses memPoolSize for workspace memory in MiB.
         cmd.append(f"--memPoolSize=workspace:{workspace}M")
+=======
+        cmd.append(f"--memPoolSize=workspace:{workspace}")
+>>>>>>> parent of 4e73038 (Merge pull request #11 from hexter2018/codex/fix-tensorrt-build-and-improve-ocr-accuracy)
     elif workspace_mode == "workspace":
         cmd.append(f"--workspace={workspace}")
-    else:
-        print("[ensure_engine] Warning: no known workspace flag in trtexec --help; using defaults")
     if fp16:
         cmd.append("--fp16")
     # Optional: verbose for debugging
@@ -138,20 +140,15 @@ def build_engine(
     merged = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
     if merged.strip():
         print(merged)
-    if proc.returncode != 0:
+    if proc.returncode != 0 or not engine_path.exists():
         print("[ensure_engine] trtexec failed. Command used:")
         print("  " + " ".join(cmd))
         lines = merged.splitlines()
-        excerpt = "\n".join(lines[:80])
+        excerpt = "\n".join(lines[:30])
         if excerpt:
-            print("[ensure_engine] trtexec output (first 80 lines):")
+            print("[ensure_engine] trtexec output (first 30 lines):")
             print(excerpt)
-        return False, merged
-
-    if not engine_path.exists():
-        raise RuntimeError("Engine build command succeeded but engine file was not created.")
-
-    return True, merged
+        raise RuntimeError("Engine build failed: engine file not created.")
 
 def main():
     models_dir = Path(os.getenv("MODELS_DIR", "/models"))
@@ -199,20 +196,13 @@ def main():
         print("[ensure_engine] Cached engine exists but incompatible -> rebuild")
 
     ensure_onnx(pt_path, onnx_path, imgsz)
-    ok, trt_output = build_engine(
+    build_engine(
         onnx_path,
         engine_path,
         fp16=fp16,
         workspace=workspace,
         workspace_mode=workspace_mode,
     )
-    if not ok:
-        # Keep worker alive by falling back to PyTorch path when trtexec fails.
-        print("[ensure_engine] Falling back to PyTorch model path due to TensorRT build failure.")
-        if pt_path.exists():
-            (models_dir / ".model_path").write_text(str(pt_path))
-            return 0
-        raise RuntimeError("Engine build failed and no fallback best.pt found.")
 
     # Validate
     if not try_load_engine(engine_path):
