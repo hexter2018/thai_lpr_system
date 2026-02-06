@@ -63,7 +63,7 @@ class PlateOCR:
         final_province = best["province"]
         if roi_province["province"]:
             roi_score = float(roi_province.get("score") or 0.0)
-            roi_score = float(roi_province.get("score") or 0.0)
+            line_score = float(best.get("line_province_score") or 0.0)
             if not final_province or roi_score >= max(70.0, line_score + 5.0):
                 final_province = roi_province["province"]
                 
