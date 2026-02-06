@@ -195,7 +195,9 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
                       key={fix.label}
                       type="button"
                       title={fix.desc}
+
                       className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2.5 py-1 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+
                       onClick={() => applyFix(fix.from, fix.to)}
                     >
                       {fix.label}
@@ -208,7 +210,10 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
             <label className="text-sm font-semibold text-slate-200">
               Province
               <input
+
                 className={`input-dark text-base md:text-lg ${provinceMissing ? 'border-amber-300/50 bg-amber-500/5' : ''}`}
+
+
                 placeholder="ยังอ่านจังหวัดไม่ได้"
                 value={p}
                 onChange={(e) => setP(e.target.value)}
@@ -216,13 +221,17 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
 
               <div className="mt-2">
                 <div className="text-xs text-slate-400">Quick:</div>
+
                 <div className="mt-1 flex flex-wrap gap-2">
+
                   {provinceShortcuts.map((prov) => (
                     <button
                       key={prov.value}
                       type="button"
                       title={prov.value}
+
                       className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2.5 py-1 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+
                       onClick={() => setP(prov.value)}
                     >
                       {prov.icon} {prov.label}
@@ -238,12 +247,16 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
           <label className="text-sm font-semibold text-slate-200">
             Note
             <input
+
               className="input-dark text-base md:text-lg"
+
+
               placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
           </label>
+
 
           <div className="grid grid-cols-1 gap-2 rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3 sm:grid-cols-2 lg:grid-cols-4">
             <button disabled={busy} onClick={onConfirm} className="btn-blue w-full justify-center disabled:opacity-50">
@@ -251,6 +264,7 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
               <kbd className="ml-1 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
             </button>
             <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft w-full justify-center disabled:opacity-50">
+
               💾 Save correction
               <kbd className="ml-1 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
             </button>
