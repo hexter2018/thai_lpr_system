@@ -72,20 +72,15 @@ def build_engine(onnx_path: Path, engine_path: Path, fp16: bool, workspace: int)
         "trtexec",
         f"--onnx={onnx_path}",
         f"--saveEngine={engine_path}",
-        f"--workspace={workspace}",
     ]
-<<<<<<< HEAD
+    workspace_mode = os.getenv("TRT_WORKSPACE_MODE", "mempool")
     if workspace_mode == "mempool":
-<<<<<<< HEAD
         # TensorRT v10+ uses memPoolSize for workspace memory in MiB.
         cmd.append(f"--memPoolSize=workspace:{workspace}M")
-=======
-        cmd.append(f"--memPoolSize=workspace:{workspace}")
->>>>>>> parent of 4e73038 (Merge pull request #11 from hexter2018/codex/fix-tensorrt-build-and-improve-ocr-accuracy)
     elif workspace_mode == "workspace":
         cmd.append(f"--workspace={workspace}")
-=======
->>>>>>> parent of 7b6b0cf (Merge pull request #9 from hexter2018/codex/fix-tensorrt-engine-builder-workspace-compatibility)
+    else:
+        cmd.append(f"--workspace={workspace}")
     if fp16:
         cmd.append("--fp16")
     # Optional: verbose for debugging
