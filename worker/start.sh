@@ -39,4 +39,15 @@ if [[ -z "${MODEL_PATH:-}" ]]; then
 fi
 
 echo "[worker] starting celery..."
+if [[ "${PRELOAD_MODELS:-1}" == "1" ]]; then
+  echo "[worker] preloading detector and OCR models..."
+  python - <<'PY'
+from alpr_worker.inference.detector import PlateDetector
+from alpr_worker.inference.ocr import PlateOCR
+
+PlateDetector()
+PlateOCR()
+print("[worker] preload complete")
+PY
+fi
 celery -A alpr_worker.celery_app:celery_app worker -l info --pool=solo
