@@ -22,7 +22,7 @@ _THAI_ONLY_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒ�
 _THAI_CONFUSION_MAP = {
     "ผ": ("ข", "พ"),
     "ข": ("ฆ", "ผ"),
-    "ฆ": ("ข",), 
+    "ฆ": ("ข",),
     "พ": ("ผ",),
     "ฝ": ("ฟ", "ผ"),
     "ฟ": ("ฝ",),
@@ -40,6 +40,10 @@ _THAI_CONFUSION_MAP = {
     "ฅ": ("ค",),
     "ท": ("ธ",),
     "ธ": ("ท",),
+}
+_THAI_CONFUSION_PENALTY_REDUCTION = {
+    ("ข", "ฆ"): 0.04,
+    ("ฆ", "ข"): 0.04,
 }
 
 
@@ -174,8 +178,8 @@ class PlateOCR:
             "score": base_conf + valid_bonus,
         }]
 
-        for alt_text, swaps in self._expand_confusion_candidates(normalized):
-            penalty = 0.06 * swaps
+        for alt_text, swaps, reduction in self._expand_confusion_candidates(normalized):
+            penalty = max(0.01, (0.06 * swaps) - reduction)
             alt_bonus = 0.1 if is_valid_plate(alt_text) else 0.0
             candidates.append({
                 "name": f"confusion_swap_{swaps}",
@@ -269,7 +273,7 @@ class PlateOCR:
         norm = re.sub(r"[^0-9ก-๙]", "", norm)
         return norm
 
-    def _expand_confusion_candidates(self, text: str) -> Iterable[Tuple[str, int]]:
+    def _expand_confusion_candidates(self, text: str) -> Iterable[Tuple[str, int, float]]:
         match = re.match(r"^([ก-ฮ]{1,2})(\d+)$", text)
         if not match:
             return []
@@ -281,18 +285,23 @@ class PlateOCR:
             alts.extend(_THAI_CONFUSION_MAP.get(ch, ()))
             options.append(alts)
 
-        variants = []
+        variants: List[Tuple[str, int, float]] = []
         for choice in itertools.product(*options):
             swapped = sum(1 for orig, alt in zip(prefix, choice) if orig != alt)
             if swapped == 0:
                 continue
-            variants.append(("".join(choice) + digits, swapped))
+            reduction = sum(
+                _THAI_CONFUSION_PENALTY_REDUCTION.get((orig, alt), 0.0)
+                for orig, alt in zip(prefix, choice)
+                if orig != alt
+            )
+            variants.append(("".join(choice) + digits, swapped, reduction))
 
         seen = set()
-        unique: List[Tuple[str, int]] = []
-        for variant, swaps in variants:
+        unique: List[Tuple[str, int, float]] = []
+        for variant, swaps, reduction in variants:
             if variant in seen:
                 continue
             seen.add(variant)
-            unique.append((variant, swaps))
+            unique.append((variant, swaps, reduction))
         return unique[:6]
