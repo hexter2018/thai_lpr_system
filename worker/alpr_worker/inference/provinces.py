@@ -37,6 +37,7 @@ PROVINCE_ALIASES: Dict[str, str] = {
     "ayutthaya": "พระนครศรีอยุธยา",
 }
 
+# OCR artifacts commonly seen in Thai province text.
 _EXTRA_REPLACEMENTS = {
     "ฯ": "",
     "ํ": "",
@@ -78,6 +79,7 @@ def match_province(text: str, threshold: int = 62) -> Tuple[str, float]:
     if cleaned in _NORMALIZED_PROVINCES:
         return _NORMALIZED_PROVINCES[cleaned], 100.0
 
+    # Containment helps with partially merged OCR tokens.
     for n_name, province in _NORMALIZED_PROVINCES.items():
         if cleaned in n_name or n_name in cleaned:
             overlap = min(len(cleaned), len(n_name)) / max(len(cleaned), len(n_name))
