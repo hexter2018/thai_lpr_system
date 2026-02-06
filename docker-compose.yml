@@ -23,6 +23,7 @@ services:
   backend:
     build:
       context: ./backend
+    user: "1000:1000"
     environment:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
