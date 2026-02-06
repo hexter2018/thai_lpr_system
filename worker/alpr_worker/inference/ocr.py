@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import cv2
 import easyocr
@@ -18,6 +19,23 @@ log = logging.getLogger(__name__)
 _THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 _THAI_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ0123456789"
 _THAI_ONLY_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ"
+_THAI_CONFUSION_MAP = {
+    "ผ": ("ข", "พ"),
+    "ข": ("ผ",),
+    "พ": ("ผ",),
+    "ฝ": ("ฟ", "ผ"),
+    "ฟ": ("ฝ",),
+    "บ": ("ป",),
+    "ป": ("บ",),
+    "ด": ("ต",),
+    "ต": ("ด",),
+    "ช": ("ซ", "ฃ"),
+    "ซ": ("ช",),
+    "ฃ": ("ช",),
+    "ส": ("ศ", "ษ"),
+    "ศ": ("ส", "ษ"),
+    "ษ": ("ส", "ศ"),
+}
 
 
 @dataclass
@@ -151,6 +169,16 @@ class PlateOCR:
             "score": base_conf + valid_bonus,
         }]
 
+        for alt_text, swaps in self._expand_confusion_candidates(normalized):
+            penalty = 0.06 * swaps
+            alt_bonus = 0.1 if is_valid_plate(alt_text) else 0.0
+            candidates.append({
+                "name": f"confusion_swap_{swaps}",
+                "text": alt_text,
+                "confidence": max(0.0, min(base_conf + valid_bonus + alt_bonus - penalty, 1.0)),
+                "score": base_conf + valid_bonus + alt_bonus - penalty,
+            })
+
         if re.match(r"^[ก-ฮ]{1,2}\d{4}$", normalized):
             prefixed = f"1{normalized}"
             candidates.append({
@@ -235,3 +263,31 @@ class PlateOCR:
         norm = self._normalize_text(text)
         norm = re.sub(r"[^0-9ก-๙]", "", norm)
         return norm
+
+    def _expand_confusion_candidates(self, text: str) -> Iterable[Tuple[str, int]]:
+        match = re.match(r"^([ก-ฮ]{1,2})(\d+)$", text)
+        if not match:
+            return []
+
+        prefix, digits = match.groups()
+        options: List[List[str]] = []
+        for ch in prefix:
+            alts = [ch]
+            alts.extend(_THAI_CONFUSION_MAP.get(ch, ()))
+            options.append(alts)
+
+        variants = []
+        for choice in itertools.product(*options):
+            swapped = sum(1 for orig, alt in zip(prefix, choice) if orig != alt)
+            if swapped == 0:
+                continue
+            variants.append(("".join(choice) + digits, swapped))
+
+        seen = set()
+        unique: List[Tuple[str, int]] = []
+        for variant, swaps in variants:
+            if variant in seen:
+                continue
+            seen.add(variant)
+            unique.append((variant, swaps))
+        return unique[:6]
