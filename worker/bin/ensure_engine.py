@@ -122,7 +122,7 @@ def build_engine(
     ]
     if workspace_mode == "mempool":
         # TensorRT v10+ uses memPoolSize for workspace memory in MiB.
-        cmd.append(f"--memPoolSize=workspace:{workspace}")
+        cmd.append(f"--memPoolSize=workspace:{workspace}M")
     elif workspace_mode == "workspace":
         cmd.append(f"--workspace={workspace}")
     else:
@@ -159,6 +159,7 @@ def main():
     onnx_path = Path(os.getenv("ONNX_PATH", str(models_dir / "best.onnx")))
 
     engine_dir = Path(os.getenv("ENGINE_DIR", str(models_dir / "engines")))
+    engine_dir.mkdir(parents=True, exist_ok=True)
     imgsz = int(os.getenv("DETECTOR_IMGSZ", "640"))
     fp16 = os.getenv("TRT_FP16", "1") == "1"
     workspace = parse_mib_env("TRT_WORKSPACE", default=4096)

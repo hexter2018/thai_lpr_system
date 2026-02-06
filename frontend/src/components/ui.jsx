@@ -1,6 +1,6 @@
 import React from 'react'
 
-export const Card = React.forwardRef(function Card({ children, className = '', ...props }, ref) {
+const CardBase = function Card({ children, className = '', ...props }, ref) {
   return (
     <div
       ref={ref}
@@ -10,7 +10,10 @@ export const Card = React.forwardRef(function Card({ children, className = '', .
       {children}
     </div>
   )
-})
+}
+
+export const Card = React.forwardRef(CardBase)
+Card.displayName = 'Card'
 
 export const Button = React.forwardRef(function Button({ children, variant = 'primary', className = '', ...props }, ref) {
   const base = 'inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50'
