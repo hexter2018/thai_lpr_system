@@ -25,6 +25,26 @@ docker compose up --build
 - API docs: http://localhost:8000/docs
 - Frontend: http://localhost:5173
 
+### Windows (Docker Desktop → Linux containers)
+Use the CPU worker and localhost defaults:
+```bash
+cd thai-alpr
+docker compose -f docker-compose.windows.yml up --build
+```
+
+- Backend: http://localhost:8000
+- Frontend: http://localhost:5173
+
+#### Windows + GPU (Docker Desktop + WSL2)
+If you have NVIDIA GPU support enabled in Docker Desktop (WSL2 backend), use:
+```bash
+cd thai-alpr
+docker compose -f docker-compose.windows.gpu.yml up --build
+```
+
+Supported GPUs (example list): GTX 3060, 3060 Ti, 4060, 4060 Ti, 5090, 5090 Ti.
+Ensure the NVIDIA driver + WSL2 GPU support + Docker Desktop GPU integration are installed and working before running this compose file.
+
 ### 2) Try upload
 Open Frontend → **Upload** page and upload 1 or multiple images.
 
