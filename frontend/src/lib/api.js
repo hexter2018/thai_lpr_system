@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 
 export async function getKPI() {
   const res = await fetch(`${API_BASE}/api/dashboard/kpi`);
@@ -68,7 +68,15 @@ export async function upsertMaster(payload) {
 
 export async function listCameras() {
   const res = await fetch(`${API_BASE}/api/cameras`);
-  if (!res.ok) throw new Error("failed to load cameras");
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error("listCameras failed", { status: res.status, text });
+    const baseMessage = res.status === 404
+      ? "/api/cameras not found or backend not running"
+      : `Failed to load cameras (status ${res.status})`;
+    const detail = text ? `: ${text}` : "";
+    throw new Error(`${baseMessage}${detail}`);
+  }
   return res.json();
 }
 

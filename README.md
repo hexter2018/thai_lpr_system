@@ -57,11 +57,35 @@ npm install
 npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
+The Vite dev server proxies `/api/*` to `http://localhost:8000` by default. To point the UI at a different API, set `VITE_API_BASE` in your environment (see `.env.example`).
+
 ---
 
 ## Where to put your model
 - `models/best.pt` (recommended path)
 - or set env `MODEL_PATH=/models/best.pt`
+
+---
+
+## API quick checks
+List cameras:
+```bash
+curl http://localhost:8000/api/cameras
+```
+
+Start RTSP ingest:
+```bash
+curl -X POST http://localhost:8000/api/rtsp/start \
+  -H "Content-Type: application/json" \
+  -d '{"camera_id":"plaza2-lane1","rtsp_url":"rtsp://user:pass@ip/stream","fps":2.0,"reconnect_sec":2.0}'
+```
+
+Stop RTSP ingest:
+```bash
+curl -X POST http://localhost:8000/api/rtsp/stop \
+  -H "Content-Type: application/json" \
+  -d '{"camera_id":"plaza2-lane1"}'
+```
 
 ---
 
