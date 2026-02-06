@@ -45,3 +45,15 @@ def verify(read_id: int, payload: VerifyIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="read not found")
     verify_read(db, r, payload)
     return {"ok": True}
+
+
+@router.delete("/reads/{read_id}")
+def delete_read(read_id: int, db: Session = Depends(get_db)):
+    r = db.query(models.PlateRead).filter(models.PlateRead.id == read_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="read not found")
+    if r.verification:
+        db.delete(r.verification)
+    db.delete(r)
+    db.commit()
+    return {"ok": True}

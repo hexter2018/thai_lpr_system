@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { absImageUrl, listPending, verifyRead } from '../lib/api.js'
+import { absImageUrl, deleteRead, listPending, verifyRead } from '../lib/api.js'
 
 function confidenceClass(v) {
   if (v >= 0.95) return 'text-emerald-200 border-emerald-300/40 bg-emerald-500/10'
@@ -50,6 +50,19 @@ export default function Queue() {
     }
   }
 
+  async function remove(id) {
+    setBusyId(id)
+    setErr('')
+    try {
+      await deleteRead(id)
+      await refresh()
+    } catch (e) {
+      setErr(String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-blue-300/20 bg-gradient-to-r from-blue-600/20 to-cyan-500/10 p-5">
@@ -75,6 +88,7 @@ export default function Queue() {
             busy={busyId === r.id}
             onConfirm={() => confirm(r.id)}
             onCorrect={(t, p, n) => correct(r.id, t, p, n)}
+            onDelete={() => remove(r.id)}
           />
         ))}
         {!rows.length && !err && <div className="rounded-2xl border border-blue-300/20 bg-slate-900/50 p-10 text-center text-slate-300">No pending items.</div>}
@@ -83,10 +97,11 @@ export default function Queue() {
   )
 }
 
-function QueueItem({ r, busy, onConfirm, onCorrect }) {
+function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
   const [t, setT] = useState(r.plate_text || '')
   const [p, setP] = useState(r.province || '')
   const [note, setNote] = useState('')
+  const provinceMissing = !p.trim()
 
   function normalizePlateText(raw) {
     return (raw || '')
@@ -136,7 +151,8 @@ function QueueItem({ r, busy, onConfirm, onCorrect }) {
             </label>
             <label className="text-sm font-medium text-slate-200">
               Province
-              <input className="input-dark" value={p} onChange={(e) => setP(e.target.value)} />
+              <input className="input-dark" placeholder="ยังอ่านจังหวัดไม่ได้" value={p} onChange={(e) => setP(e.target.value)} />
+              {provinceMissing && <div className="mt-1 text-xs text-amber-200">ยังอ่านจังหวัดไม่ได้ - สามารถยืนยันหรือแก้ไขได้</div>}
             </label>
           </div>
 
@@ -149,6 +165,18 @@ function QueueItem({ r, busy, onConfirm, onCorrect }) {
             <button disabled={busy} onClick={onConfirm} className="btn-blue disabled:opacity-50">Confirm <span className="text-xs text-blue-100/90">Enter</span></button>
             <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft disabled:opacity-50">Save correction <span className="text-xs text-slate-300">Ctrl+Enter</span></button>
             <button type="button" className="btn-soft" onClick={() => setT(normalizePlateText(t))}>Normalize text</button>
+            <button
+              type="button"
+              className="btn-soft border border-rose-300/40 text-rose-200 hover:border-rose-300/70"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm('ลบรายการนี้ออกจากคิวตรวจสอบใช่หรือไม่?')) {
+                  onDelete()
+                }
+              }}
+            >
+              Delete
+            </button>
           </div>
         </div>
       </div>

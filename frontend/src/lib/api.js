@@ -38,9 +38,21 @@ export async function verifyRead(readId, payload) {
   return res.json();
 }
 
+export async function deleteRead(readId) {
+  const res = await fetch(`${API_BASE}/api/reads/${readId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("delete read failed");
+  return res.json();
+}
+
 export async function searchMaster(q="") {
   const res = await fetch(`${API_BASE}/api/master?q=${encodeURIComponent(q)}`);
   if (!res.ok) throw new Error("failed to load master");
+  return res.json();
+}
+
+export async function deleteMaster(masterId) {
+  const res = await fetch(`${API_BASE}/api/master/${masterId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("delete master failed");
   return res.json();
 }
 
