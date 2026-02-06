@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { uploadBatch, uploadSingle } from '../lib/api.js'
 
 function UploadCard({ title, hint, children }) {
@@ -16,6 +17,7 @@ export default function Upload() {
   const [multi, setMulti] = useState([])
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const navigate = useNavigate()
 
   async function onUploadSingle() {
     if (!single) return
@@ -24,6 +26,7 @@ export default function Upload() {
     try {
       const r = await uploadSingle(single)
       setMsg(`Uploaded capture_id=${r.capture_id}`)
+      navigate('/queue')
     } catch (e) {
       setMsg(String(e))
     } finally {
@@ -38,6 +41,7 @@ export default function Upload() {
     try {
       const r = await uploadBatch(multi)
       setMsg(`Uploaded batch: count=${r.count}`)
+      navigate('/queue')
     } catch (e) {
       setMsg(String(e))
     } finally {

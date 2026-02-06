@@ -39,3 +39,13 @@ def upsert_master(payload: MasterUpsertIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(m)
     return MasterOut(**m.__dict__)
+
+
+@router.delete("/master/{master_id}")
+def delete_master(master_id: int, db: Session = Depends(get_db)):
+    m = db.query(models.MasterPlate).filter(models.MasterPlate.id == master_id).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="master record not found")
+    db.delete(m)
+    db.commit()
+    return {"ok": True}

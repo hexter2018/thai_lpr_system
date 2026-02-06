@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { searchMaster, upsertMaster } from '../lib/api.js'
+import { deleteMaster, searchMaster, upsertMaster } from '../lib/api.js'
 
 export default function Master() {
   const [q, setQ] = useState("")
@@ -39,6 +39,22 @@ export default function Master() {
     }
   }
 
+  async function removeRow(row) {
+    if (!window.confirm(`ลบข้อมูลป้ายทะเบียน ${row.plate_text_norm} ใช่หรือไม่?`)) {
+      return
+    }
+    setBusy(true); setErr(""); setMsg("")
+    try {
+      await deleteMaster(row.id)
+      setMsg("Deleted")
+      await load()
+    } catch (e) {
+      setErr(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div>
       <h1 className="text-xl font-bold mb-3">Master Data</h1>
@@ -68,7 +84,7 @@ export default function Master() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => <Row key={r.id} r={r} busy={busy} onSave={saveRow} />)}
+            {rows.map(r => <Row key={r.id} r={r} busy={busy} onSave={saveRow} onDelete={removeRow} />)}
             {!rows.length && <tr><td className="p-3 text-slate-500" colSpan="7">No records</td></tr>}
           </tbody>
         </table>
@@ -77,7 +93,7 @@ export default function Master() {
   )
 }
 
-function Row({r, onSave, busy}) {
+function Row({r, onSave, onDelete, busy}) {
   const [display, setDisplay] = useState(r.display_text || "")
   const [prov, setProv] = useState(r.province || "")
   const [conf, setConf] = useState(r.confidence ?? 1.0)
@@ -104,16 +120,31 @@ function Row({r, onSave, busy}) {
         <input type="checkbox" checked={editable} onChange={e=>setEditable(e.target.checked)} />
       </td>
       <td className="p-2">
-        <button disabled={busy} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-sm hover:bg-blue-700 disabled:opacity-60"
-          onClick={() => onSave({
-            ...r,
-            display_text: display,
-            province: prov,
-            confidence: conf,
-            editable
-          })}>
-          Save
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button disabled={busy} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-sm hover:bg-blue-700 disabled:opacity-60"
+            onClick={() => onSave({
+              ...r,
+              display_text: display,
+              province: prov,
+              confidence: conf,
+              editable
+            })}>
+            Save
+          </button>
+          <button
+            disabled={busy}
+            className="px-3 py-2 rounded-xl border border-rose-200 text-rose-600 text-sm font-medium shadow-sm hover:bg-rose-50 disabled:opacity-60"
+            onClick={() => onDelete({
+              ...r,
+              display_text: display,
+              province: prov,
+              confidence: conf,
+              editable
+            })}
+          >
+            Delete
+          </button>
+        </div>
       </td>
     </tr>
   )
