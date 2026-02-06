@@ -10,12 +10,15 @@ import easyocr
 import numpy as np
 import torch
 
+from .provinces import match_province, normalize_province
+from .validate import is_valid_plate
+
 log = logging.getLogger(__name__)
 
 _THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 _THAI_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ0123456789"
-_PLATE_FULL_RE = re.compile(r"^\d[ก-ฮ]{1,2}\d{4}$")
-_PLATE_FALLBACK_RE = re.compile(r"^[ก-ฮ]{2}\d{4}$")
+_THAI_ONLY_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ"
+
 
 @dataclass
 class OCRResult:
@@ -26,8 +29,6 @@ class OCRResult:
 
 
 class PlateOCR:
-    """EasyOCR pipeline for Thai plate + province extraction."""
-
     def __init__(self) -> None:
         use_gpu = torch.cuda.is_available()
         self.reader = easyocr.Reader(["th", "en"], gpu=use_gpu, verbose=False)
@@ -41,266 +42,193 @@ class PlateOCR:
         if img is None:
             raise RuntimeError(f"Cannot read crop: {crop_path}")
 
-        variants = self._build_variants(img)
         best: Dict[str, Any] = {
             "plate_text": "",
             "province": "",
-            "score": 0.0,
+            "confidence": 0.0,
+            "score": -1.0,
             "variant": "",
             "lines": [],
-            "line_province": "",
-            "line_province_score": 0.0,
-            "recovery_applied": False,
             "candidates": [],
-            "tokens": [],
-            "confidence": 0.0,
+            "line_province_score": 0.0,
         }
 
-        for variant_name, variant_img in variants:
+        for variant_name, variant_img in self._build_variants(img):
             detections = self.reader.readtext(variant_img, detail=1, allowlist=_THAI_ALLOWLIST)
             candidate = self._evaluate_variant(variant_name, detections)
             if candidate["score"] > best["score"]:
                 best = candidate
 
-        province_roi = self._read_province_from_roi(img)
-        final_province = best["line_province"] or best["province"]
-        if province_roi["province"]:
-            final_province = province_roi["province"]
-        
+        roi_province = self._province_roi_pass(img)
+        final_province = best["province"]
+        if roi_province["province"]:
+            final_province = roi_province["province"]
+
+        confidence = max(0.0, min(float(best["confidence"]), 1.0))
+        if confidence < 0.6:
+            log.warning(
+                "Low OCR confidence variant=%s candidates=%s",
+                best["variant"],
+                best["candidates"][:3],
+            )
+
         return OCRResult(
             plate_text=best["plate_text"],
             province=final_province,
-            confidence=max(0.0, min(float(best["confidence"]), 1.0)),
+            confidence=confidence,
             raw={
                 "chosen_variant": best["variant"],
                 "lines": best["lines"],
-                "line_province_score": best["line_province_score"],
-                "roi_province": province_roi,
-                "tokens": best["tokens"],
                 "candidates": best["candidates"],
-                "leading_digit_recovery": best["recovery_applied"],
+                "line_province": best["province"],
+                "line_province_score": best["line_province_score"],
+                "roi_province": roi_province,
             },
         )
-    
+
     def _build_variants(self, image: np.ndarray) -> List[Tuple[str, np.ndarray]]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         clahe = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(8, 8)).apply(gray)
-        sharpened = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
-
-        adaptive = cv2.adaptiveThreshold(sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 4)
-        otsu = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-
+        adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
+        otsu = cv2.threshold(clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        up2 = cv2.resize(clahe, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+        up2_adaptive = cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
+        up2_otsu = cv2.resize(otsu, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
         return [
             ("gray", gray),
             ("clahe", clahe),
-            ("sharpened", sharpened),
             ("adaptive", adaptive),
             ("otsu", otsu),
-            ("upscale_sharpened_x2", cv2.resize(sharpened, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)),
-            ("upscale_adaptive_x2", cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)),
+            ("upscale_x2", up2),
+            ("upscale_adaptive_x2", up2_adaptive),
+            ("upscale_otsu_x2", up2_otsu),
         ]
-    
-    def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
 
-        lines, all_tokens = self._group_tokens_to_lines(detections)
-        line_texts = ["".join(t["text"] for t in line) for line in lines]
-        top_tokens = lines[0] if lines else []
-        bottom_tokens = lines[1] if len(lines) > 1 else []
-        plate_candidate, plate_confidence, recovery_applied, candidates = self._reconstruct_plate(top_tokens, bottom_tokens)
+    def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
+        lines, tokens = self._group_tokens_to_lines(detections)
+        line_texts = ["".join(tok["text"] for tok in line) for line in lines]
+
+        top_line = line_texts[0] if line_texts else ""
+        plate_candidates = self._plate_candidates(top_line, tokens)
+        best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
-        line_province, line_province_score = match_province(bottom_line)
-        merged_line_province, merged_score = match_province("".join(line_texts))
-        if merged_score > line_province_score:
-            line_province = merged_line_province
-            line_province_score = merged_score
-        score = plate_confidence
-        if line_province:
-            score += 0.08
-        
+        province, province_score = match_province(bottom_line)
+        if not province:
+            merged = "".join(line_texts)
+            province, province_score = match_province(merged, threshold=64)
+        province = normalize_province(province or bottom_line, threshold=64)
+
+        score = best_plate["score"] + (0.08 if province else 0.0)
         return {
             "variant": variant_name,
-            "plate_text": plate_candidate,
-            "province": normalize_province(bottom_line),
-            "line_province": line_province,
-            "line_province_score": line_province_score,
+            "plate_text": best_plate["text"],
+            "confidence": best_plate["confidence"],
             "score": score,
-            "confidence": plate_confidence,
+            "province": province,
+            "line_province_score": province_score,
             "lines": line_texts,
-            "tokens": all_tokens,
-            "candidates": candidates,
-            "recovery_applied": recovery_applied,
+            "candidates": plate_candidates,
+            "tokens": tokens,
         }
-    
-    def _reconstruct_plate(self, top_tokens: List[Dict[str, Any]], bottom_tokens: List[Dict[str, Any]]) -> Tuple[str, float, bool, List[Dict[str, Any]]]:
-        candidates: List[Dict[str, Any]] = []
 
-        def add_candidate(name: str, text: str, tokens: List[Dict[str, Any]], recovered: bool = False) -> None:
-            norm_text = self._normalize_plate(text)
-            if not norm_text:
-                return
-            confs = [float(t["conf"]) for t in tokens if t.get("text")]
-            base_conf = float(np.mean(confs)) if confs else 0.0
-            regex_bonus = 0.22 if _PLATE_FULL_RE.match(norm_text) else 0.12 if _PLATE_FALLBACK_RE.match(norm_text) else 0.0
-            recovery_penalty = 0.08 if recovered else 0.0
-            cand_score = base_conf + regex_bonus - recovery_penalty
-            candidates.append(
-                {
-                    "name": name,
-                    "text": norm_text,
-                    "score": cand_score,
-                    "base_conf": base_conf,
-                    "regex_bonus": regex_bonus,
-                    "recovered": recovered,
-                    "token_count": len(tokens),
-                }
-            )
+    def _plate_candidates(self, top_line: str, tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized = self._normalize_plate(top_line)
+        if not normalized:
+            return []
 
-        top_text = "".join(t["text"] for t in top_tokens)
-        bottom_text = "".join(t["text"] for t in bottom_tokens)
-        add_candidate("top_line", top_text, top_tokens)
-        add_candidate("top_plus_bottom", top_text + bottom_text, top_tokens + bottom_tokens)
+        confs = [float(t["conf"]) for t in tokens] or [0.0]
+        base_conf = float(np.mean(confs))
+        valid_bonus = 0.25 if is_valid_plate(normalized) else 0.0
 
-        # Recover missing leading digit token (e.g., ขช5148 + isolated "4" on the left)
-        recovery_applied = False
-        for cand in list(candidates):
-            if not _PLATE_FALLBACK_RE.match(cand["text"]):
-                continue
-            first_thai_x = min((t["x"] for t in top_tokens if re.search(r"[ก-ฮ]", t["text"] or "")), default=None)
-            if first_thai_x is None:
-                continue
-            digit_tokens = [
-                t
-                for t in top_tokens
-                if re.fullmatch(r"\d", t["text"] or "") and t["x"] < first_thai_x and float(t["conf"]) >= 0.35
-            ]
-            if not digit_tokens:
-                continue
-            digit_tokens.sort(key=lambda t: t["x"])
-            recovered_text = "".join(t["text"] for t in digit_tokens) + cand["text"]
-            add_candidate("leading_digit_recovery", recovered_text, digit_tokens + top_tokens, recovered=True)
-            recovery_applied = True
+        candidates = [{
+            "name": "top_line",
+            "text": normalized,
+            "confidence": max(0.0, min(base_conf + valid_bonus, 1.0)),
+            "score": base_conf + valid_bonus,
+        }]
 
-        if not candidates:
-            return "", 0.0, False, []
+        if re.match(r"^[ก-ฮ]{1,2}\d{4}$", normalized):
+            prefixed = f"1{normalized}"
+            candidates.append({
+                "name": "prefixed_digit",
+                "text": prefixed,
+                "confidence": max(0.0, min(base_conf + 0.1, 1.0)),
+                "score": base_conf + (0.22 if is_valid_plate(prefixed) else 0.02),
+            })
 
-        candidates.sort(key=lambda c: (c["score"], 1 if _PLATE_FULL_RE.match(c["text"]) else 0), reverse=True)
-        best = candidates[0]
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates
 
-        confidence = max(0.0, min(best["score"], 1.0))
-        if _PLATE_FULL_RE.match(best["text"]):
-            confidence = min(1.0, confidence + 0.06)
-
-        return best["text"], confidence, bool(best["recovered"] or recovery_applied), candidates
-    
-    def _read_province_from_roi(self, image: np.ndarray) -> Dict[str, Any]:
+    def _province_roi_pass(self, image: np.ndarray) -> Dict[str, Any]:
         h, w = image.shape[:2]
-        roi_ratios = [0.50, 0.40, 0.35]
-        best_province = ""
-        best_score = 0.0
-        best_debug: Dict[str, Any] = {}
+        start = int(h * 0.55)
+        roi = image[start:h, 0:w]
+        if roi.size == 0:
+            return {"province": "", "score": 0.0, "variant": "", "texts": []}
 
-        for ratio in roi_ratios:
-            start_y = int(h * (1.0 - ratio))
-            roi = image[start_y:h, 0:w]
-            if roi.size == 0:
+        best = {"province": "", "score": 0.0, "variant": "", "texts": []}
+        for name, variant in self._build_province_roi_variants(roi):
+            detections = self.thai_reader.readtext(variant, detail=1, allowlist=_THAI_ONLY_ALLOWLIST)
+            texts = [self._normalize_text(t) for _, t, c in detections if float(c or 0.0) >= 0.1]
+            texts = [t for t in texts if t]
+            if not texts:
                 continue
-            for variant_name, variant in self._build_province_roi_variants(roi):
-                texts = self._read_text_tokens(self.thai_reader, variant, thai_only=True)
-                if not texts:
-                    continue
-                candidates = ["".join(texts)] + texts
-                for text in candidates:
-                    province, score = match_province(text, threshold=58)
-                    if score < 58:
-                        thai_only_text = re.sub(r"[^ก-๙]", "", text)
-                        province, score = match_province(thai_only_text, threshold=54)
-                    province = normalize_province(province or text, threshold=54)
-                    if province and score > best_score:
-                        best_province = province
-                        best_score = float(score)
-                        best_debug = {
-                            "roi_ratio": ratio,
-                            "variant": variant_name,
-                            "texts": texts,
-                            "source_text": text,
-                        }
-
-        return {"province": best_province, "score": best_score, **best_debug}
+            for text in ["".join(texts)] + texts:
+                province, score = match_province(text, threshold=58)
+                province = normalize_province(province or text, threshold=58)
+                if province and score > best["score"]:
+                    best = {"province": province, "score": float(score), "variant": name, "texts": texts}
+        return best
 
     def _build_province_roi_variants(self, roi: np.ndarray) -> List[Tuple[str, np.ndarray]]:
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        upscaled = cv2.resize(gray, None, fx=2.6, fy=2.6, interpolation=cv2.INTER_CUBIC)
-        clahe = cv2.createCLAHE(clipLimit=3.2, tileGridSize=(8, 8)).apply(upscaled)
-        sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5.2, -1], [0, -1, 0]], dtype=np.float32))
-        kernel = np.ones((2, 2), np.uint8)
-        morph_close = cv2.morphologyEx(sharpen, cv2.MORPH_CLOSE, kernel, iterations=1)
-        morph_open = cv2.morphologyEx(morph_close, cv2.MORPH_OPEN, kernel, iterations=1)
+        up = cv2.resize(gray, None, fx=2.6, fy=2.6, interpolation=cv2.INTER_CUBIC)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(up)
+        sharpen = cv2.filter2D(clahe, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32))
+        adaptive = cv2.adaptiveThreshold(sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
+        return [("roi_upscale", up), ("roi_clahe_sharpen", sharpen), ("roi_adaptive", adaptive)]
 
-        adaptive = cv2.adaptiveThreshold(morph_open, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
-        otsu = cv2.threshold(morph_open, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        return [
-            ("gray_upscaled", upscaled),
-            ("clahe", clahe),
-            ("morph_open", morph_open),
-            ("adaptive", adaptive),
-            ("otsu", otsu),
-        ]
-    def _read_text_tokens(self, reader: easyocr.Reader, image: np.ndarray, thai_only: bool = False) -> List[str]:
-        kwargs: Dict[str, Any] = {"detail": 1}
-        if thai_only:
-            kwargs["allowlist"] = _THAI_ALLOWLIST
-        detections = reader.readtext(image, **kwargs)
-        tokens: List[str] = []
-        for _, text, conf in detections:
-            if conf is None or float(conf) < 0.10:
-                continue
-            cleaned = self._normalize_plate(text or "")
-            if cleaned:
-                tokens.append(cleaned)
-        return tokens
-    
     def _group_tokens_to_lines(self, detections: Sequence[Tuple[Any, str, float]]) -> Tuple[List[List[Dict[str, Any]]], List[Dict[str, Any]]]:
-        rows: List[Dict[str, Any]] = []
+        tokens: List[Dict[str, Any]] = []
         for box, text, conf in detections:
-            cleaned = self._normalize_plate(text or "")
+            cleaned = self._normalize_text(text)
             if not cleaned:
                 continue
-            y_center = float(np.mean([pt[1] for pt in box]))
-            x_center = float(np.mean([pt[0] for pt in box]))
-            rows.append(
-                {
-                    "bbox": [[float(pt[0]), float(pt[1])] for pt in box],
-                    "text": cleaned,
-                    "conf": float(conf or 0.0),
-                    "x": x_center,
-                    "y": y_center,
-                }
-            )
-    
-        if not rows:
+            y = float(np.mean([pt[1] for pt in box]))
+            x = float(np.mean([pt[0] for pt in box]))
+            tokens.append({"text": cleaned, "conf": float(conf or 0.0), "x": x, "y": y})
+
+        if not tokens:
             return [], []
-        rows.sort(key=lambda r: r["y"])
-        y_values = [r["y"] for r in rows]
-        spread = max(y_values) - min(y_values)
-        threshold = max(8.0, spread * 0.22)
+
+        tokens.sort(key=lambda t: t["y"])
+        ys = [t["y"] for t in tokens]
+        threshold = max(8.0, (max(ys) - min(ys)) * 0.22)
+
         clusters: List[List[Dict[str, Any]]] = []
-        for item in rows:
+        for tok in tokens:
             if not clusters:
-                clusters.append([item])
+                clusters.append([tok])
                 continue
-            current_mean = float(np.mean([x["y"] for x in clusters[-1]]))
-            if abs(item["y"] - current_mean) <= threshold:
-                clusters[-1].append(item)
+            center = float(np.mean([x["y"] for x in clusters[-1]]))
+            if abs(tok["y"] - center) <= threshold:
+                clusters[-1].append(tok)
             else:
-                clusters.append([item])
+                clusters.append([tok])
+
         clusters = sorted(clusters, key=lambda c: np.mean([x["y"] for x in c]))[:2]
         for cluster in clusters:
             cluster.sort(key=lambda c: c["x"])
-        return clusters, rows
-    def _normalize_plate(self, text: str) -> str:
-        norm = (text or "").strip()
-        norm = norm.translate(_THAI_DIGIT_MAP)
+        return clusters, tokens
+
+    def _normalize_text(self, text: str) -> str:
+        norm = (text or "").translate(_THAI_DIGIT_MAP)
         norm = re.sub(r"[\s\-_.]", "", norm)
+        norm = re.sub(r"[^0-9A-Za-zก-๙]", "", norm)
+        return norm
+
+    def _normalize_plate(self, text: str) -> str:
+        norm = self._normalize_text(text)
         norm = re.sub(r"[^0-9ก-๙]", "", norm)
         return norm

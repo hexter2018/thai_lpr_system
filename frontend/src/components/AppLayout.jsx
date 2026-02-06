@@ -26,42 +26,38 @@ export default function AppLayout() {
         <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-cyan-400/10 blur-3xl" />
       </div>
 
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 p-4 lg:min-h-screen lg:grid-cols-[260px_minmax(0,1fr)] lg:p-6">
-        <aside className="glass-panel p-4 lg:p-5">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-500/90 text-white shadow-lg shadow-blue-500/30">TL</div>
-            <div>
-              <div className="font-semibold text-slate-100">Thai ALPR</div>
-              <div className="text-xs text-slate-400">Detection · OCR · Verify</div>
+      <div className="mx-auto max-w-7xl space-y-4 p-4 lg:space-y-5 lg:p-6">
+        <header className="glass-panel px-4 py-3 md:px-5 md:py-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-500/90 text-white shadow-lg shadow-blue-500/30">TL</div>
+                <div>
+                  <h1 className="text-lg font-semibold text-slate-100">Thai ALPR</h1>
+                  <p className="text-xs text-slate-400">Detection · OCR · Verify</p>
+                </div>
+              </div>
+              <div className="text-xs text-slate-400">Blue-theme operations workspace</div>
             </div>
-          </div>
-          <nav className="space-y-1.5">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `nav-item ${isActive ? 'nav-item-active' : 'nav-item-idle'}`
-                }
-              >
-                <Icon type={item.icon} />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
 
-        <div className="space-y-4 lg:space-y-5">
-          <header className="glass-panel flex items-center justify-between px-5 py-4">
-            <div>
-              <h1 className="text-lg font-semibold text-slate-100">License Plate Operations</h1>
-              <p className="text-sm text-slate-400">Blue-theme monitoring and verification workspace</p>
-            </div>
-          </header>
-          <main className="glass-panel p-4 md:p-6">
-            <Outlet />
-          </main>
-        </div>
+            <nav className="top-nav flex flex-wrap items-center gap-2">
+              {navItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : 'nav-item-idle'}`}
+                >
+                  <Icon type={item.icon} />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+        </header>
+
+        <main className="glass-panel p-4 md:p-6">
+          <Outlet />
+        </main>
       </div>
     </div>
   )

@@ -19,58 +19,49 @@ THAI_PROVINCES = [
 
 PROVINCE_ALIASES: Dict[str, str] = {
     "กทม": "กรุงเทพมหานคร",
+    "กทม.": "กรุงเทพมหานคร",
     "กรุงเทพ": "กรุงเทพมหานคร",
     "กรุงเทพฯ": "กรุงเทพมหานคร",
     "bangkok": "กรุงเทพมหานคร",
     "bkk": "กรุงเทพมหานคร",
     "อยุธยา": "พระนครศรีอยุธยา",
-    "พระนครศรี": "พระนครศรีอยุธยา",
+    "กรุงเก่า": "พระนครศรีอยุธยา",
     "โคราช": "นครราชสีมา",
-    "นครศรี": "นครศรีธรรมราช",
     "พิดโลก": "พิษณุโลก",
+    "ศรีสะเกษ": "ศรีสะเกษ",
+    "ศรีสะเกด": "ศรีสะเกษ",
     "ชล": "ชลบุรี",
     "นน": "นนทบุรี",
-    "สมุทรปราการ": "สมุทรปราการ",
+    "ปากน้ำ": "สมุทรปราการ",
+    "สุราษ": "สุราษฎร์ธานี",
+    "สุราษฎ": "สุราษฎร์ธานี",
+    "อุบล": "อุบลราชธานี",
+    "อุดร": "อุดรธานี",
+    "เชียงใหม่": "เชียงใหม่",
+    "เชียงราย": "เชียงราย",
     "chiangmai": "เชียงใหม่",
     "chiangrai": "เชียงราย",
-    "nakhonratchasima": "นครราชสีมา",
+    "korat": "นครราชสีมา",
     "ayutthaya": "พระนครศรีอยุธยา",
-}
-
-# OCR artifacts commonly seen in Thai province text.
-_EXTRA_REPLACEMENTS = {
-    "ฯ": "",
-    "ํ": "",
-    "่": "",
-    "้": "",
-    "๊": "",
-    "๋": "",
-    "์": "",
-    "ิ": "",
-    "ี": "",
-    "ึ": "",
-    "ื": "",
-    "ุ": "",
-    "ู": "",
+    "nakhonratchasima": "นครราชสีมา",
 }
 
 
-def _aggressive_normalize(text: str) -> str:
+def normalize_thai_text(text: str) -> str:
     txt = unicodedata.normalize("NFKC", (text or "").strip().lower())
-    for src, dst in _EXTRA_REPLACEMENTS.items():
-        txt = txt.replace(src, dst)
+    txt = txt.replace("ฯ", "").replace("ํ", "")
     txt = "".join(ch for ch in txt if unicodedata.category(ch) != "Mn")
     txt = re.sub(r"[\s\-_.:/\\|,;\[\](){}<>!?+*'\"`~]+", "", txt)
     txt = re.sub(r"[^a-z0-9ก-๙]", "", txt)
     return txt
 
 
-_NORMALIZED_PROVINCES = {_aggressive_normalize(p): p for p in THAI_PROVINCES}
-_NORMALIZED_ALIASES = {_aggressive_normalize(k): v for k, v in PROVINCE_ALIASES.items()}
+_NORMALIZED_PROVINCES = {normalize_thai_text(name): name for name in THAI_PROVINCES}
+_NORMALIZED_ALIASES = {normalize_thai_text(alias): target for alias, target in PROVINCE_ALIASES.items()}
 
 
-def match_province(text: str, threshold: int = 62) -> Tuple[str, float]:
-    cleaned = _aggressive_normalize(text)
+def match_province(text: str, threshold: int = 70) -> Tuple[str, float]:
+    cleaned = normalize_thai_text(text)
     if not cleaned:
         return "", 0.0
 
@@ -79,34 +70,35 @@ def match_province(text: str, threshold: int = 62) -> Tuple[str, float]:
     if cleaned in _NORMALIZED_PROVINCES:
         return _NORMALIZED_PROVINCES[cleaned], 100.0
 
-    # Containment helps with partially merged OCR tokens.
-    for n_name, province in _NORMALIZED_PROVINCES.items():
-        if cleaned in n_name or n_name in cleaned:
-            overlap = min(len(cleaned), len(n_name)) / max(len(cleaned), len(n_name))
-            return province, 75.0 + overlap * 20.0
+    for normalized, province in _NORMALIZED_PROVINCES.items():
+        if cleaned in normalized or normalized in cleaned:
+            overlap = min(len(cleaned), len(normalized)) / max(len(cleaned), len(normalized))
+            score = 74.0 + overlap * 20.0
+            if score >= threshold:
+                return province, score
 
-    province_match = process.extractOne(cleaned, list(_NORMALIZED_PROVINCES.keys()), scorer=fuzz.WRatio)
-    alias_match = process.extractOne(cleaned, list(_NORMALIZED_ALIASES.keys()), scorer=fuzz.WRatio)
+    province_hit = process.extractOne(cleaned, list(_NORMALIZED_PROVINCES.keys()), scorer=fuzz.WRatio)
+    alias_hit = process.extractOne(cleaned, list(_NORMALIZED_ALIASES.keys()), scorer=fuzz.WRatio)
 
-    best_name = ""
-    best_score = 0.0
-    if province_match:
-        best_name = province_match[0]
-        best_score = float(province_match[1])
-    if alias_match and float(alias_match[1]) > best_score:
-        best_name = alias_match[0]
-        best_score = float(alias_match[1])
+    candidate = ""
+    score = 0.0
+    is_alias = False
+    if province_hit:
+        candidate = province_hit[0]
+        score = float(province_hit[1])
+    if alias_hit and float(alias_hit[1]) > score:
+        candidate = alias_hit[0]
+        score = float(alias_hit[1])
+        is_alias = True
 
-    if best_score < threshold:
-        return "", best_score
+    if score < float(threshold):
+        return "", score
 
-    if best_name in _NORMALIZED_ALIASES:
-        return _NORMALIZED_ALIASES[best_name], best_score
-    return _NORMALIZED_PROVINCES.get(best_name, ""), best_score
+    if is_alias:
+        return _NORMALIZED_ALIASES[candidate], score
+    return _NORMALIZED_PROVINCES.get(candidate, ""), score
 
 
-def normalize_province(text: str, threshold: int = 62) -> str:
-    matched = match_province(text, threshold=threshold)[0]
-    if matched in THAI_PROVINCES:
-        return matched
-    return ""
+def normalize_province(text: str, threshold: int = 70) -> str:
+    matched, _ = match_province(text, threshold=threshold)
+    return matched if matched in THAI_PROVINCES else ""
