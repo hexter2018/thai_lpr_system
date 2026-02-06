@@ -149,7 +149,7 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
 
   return (
     <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-4 shadow-lg shadow-blue-950/10">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[520px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[560px_minmax(0,1fr)]">
         <div className="rounded-2xl border border-blue-300/15 bg-slate-950/40 p-3">
           <div className="flex items-center justify-between pb-2">
             <div>
@@ -169,7 +169,7 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
           </div>
         </div>
 
-        <div className="space-y-3" onKeyDown={onKeyDown} tabIndex={0}>
+        <div className="space-y-4" onKeyDown={onKeyDown} tabIndex={0}>
           <div className="rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -182,20 +182,22 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <label className="text-sm font-medium text-slate-200">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <label className="text-sm font-semibold text-slate-200">
               Plate
-              <input className="input-dark" value={t} onChange={(e) => setT(e.target.value)} />
+              <input className="input-dark text-base md:text-lg" value={t} onChange={(e) => setT(e.target.value)} />
 
               <div className="mt-2">
                 <div className="text-xs text-slate-400">Quick fix:</div>
-                <div className="mt-1 flex flex-wrap gap-1">
+                <div className="mt-1 flex flex-wrap gap-2">
                   {commonFixes.map((fix) => (
                     <button
                       key={fix.label}
                       type="button"
                       title={fix.desc}
-                      className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+
+                      className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2.5 py-1 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+
                       onClick={() => applyFix(fix.from, fix.to)}
                     >
                       {fix.label}
@@ -205,10 +207,13 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
               </div>
             </label>
 
-            <label className="text-sm font-medium text-slate-200">
+            <label className="text-sm font-semibold text-slate-200">
               Province
               <input
-                className={`input-dark ${provinceMissing ? 'border-amber-300/50 bg-amber-500/5' : ''}`}
+
+                className={`input-dark text-base md:text-lg ${provinceMissing ? 'border-amber-300/50 bg-amber-500/5' : ''}`}
+
+
                 placeholder="ยังอ่านจังหวัดไม่ได้"
                 value={p}
                 onChange={(e) => setP(e.target.value)}
@@ -216,13 +221,17 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
 
               <div className="mt-2">
                 <div className="text-xs text-slate-400">Quick:</div>
-                <div className="mt-1 flex flex-wrap gap-1">
+
+                <div className="mt-1 flex flex-wrap gap-2">
+
                   {provinceShortcuts.map((prov) => (
                     <button
                       key={prov.value}
                       type="button"
                       title={prov.value}
-                      className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2 py-0.5 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+
+                      className="rounded-lg border border-blue-300/20 bg-slate-800/80 px-2.5 py-1 text-xs text-blue-100 transition hover:bg-blue-500/20 hover:border-blue-400/40"
+
                       onClick={() => setP(prov.value)}
                     >
                       {prov.icon} {prov.label}
@@ -235,31 +244,36 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
             </label>
           </div>
 
-          <label className="text-sm font-medium text-slate-200">
+          <label className="text-sm font-semibold text-slate-200">
             Note
             <input
-              className="input-dark"
+
+              className="input-dark text-base md:text-lg"
+
+
               placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
           </label>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3">
-            <button disabled={busy} onClick={onConfirm} className="btn-blue disabled:opacity-50">
+
+          <div className="grid grid-cols-1 gap-2 rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <button disabled={busy} onClick={onConfirm} className="btn-blue w-full justify-center disabled:opacity-50">
               ✓ Confirm
               <kbd className="ml-1 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
             </button>
-            <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft disabled:opacity-50">
+            <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft w-full justify-center disabled:opacity-50">
+
               💾 Save correction
               <kbd className="ml-1 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
             </button>
-            <button type="button" className="btn-soft" onClick={() => setT(normalizePlateText(t))}>
+            <button type="button" className="btn-soft w-full justify-center" onClick={() => setT(normalizePlateText(t))}>
               🔧 Normalize
             </button>
             <button
               type="button"
-              className="btn-soft border border-rose-300/40 text-rose-200 hover:border-rose-300/70"
+              className="btn-soft w-full justify-center border border-rose-300/40 text-rose-200 hover:border-rose-300/70"
               disabled={busy}
               onClick={() => {
                 if (window.confirm('ลบรายการนี้ออกจากคิวตรวจสอบใช่หรือไม่?')) {
