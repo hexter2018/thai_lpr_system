@@ -65,6 +65,8 @@ def match_province(text: str, threshold: int = 70) -> Tuple[str, float]:
     if not cleaned:
         return "", 0.0
 
+    if "กรุงเทพ" in cleaned or "กรงเทพ" in cleaned or "มหานคร" in cleaned:
+        return "กรุงเทพมหานคร", 100.0
     if cleaned in _NORMALIZED_ALIASES:
         return _NORMALIZED_ALIASES[cleaned], 100.0
     if cleaned in _NORMALIZED_PROVINCES:
