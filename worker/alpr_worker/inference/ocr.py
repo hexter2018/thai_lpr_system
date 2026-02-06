@@ -54,12 +54,6 @@ _THAI_CONFUSION_PENALTY_REDUCTION = {
     ("ม", "ฆ"): 0.03,
 }
 _CONFUSABLE_CHARS = set("ขฆม")
-
-
-_DEFAULT_VARIANT_LIMIT = 7
-
-_DEFAULT_VARIANT_LIMIT = 6
-
 _DEFAULT_VARIANT_NAMES = (
     "gray",
     "clahe",
@@ -148,6 +142,7 @@ class PlateOCR:
                 [v["variant"] for v in variant_results],
                 aggregated["candidates"][:3],
 
+
             )
 
         debug_flags = self._should_debug(confidence, best, aggregated)
@@ -161,6 +156,7 @@ class PlateOCR:
                 aggregated=aggregated,
                 province_info=province_info,
                 flags=debug_flags,
+
             )
 
         debug_flags = self._should_debug(confidence, best, aggregated)
@@ -241,6 +237,8 @@ class PlateOCR:
         detections: Sequence[Tuple[Any, str, float]],
         score_boost: float = 0.0,
     ) -> Dict[str, Any]:
+
+
     
     def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
 
@@ -252,7 +250,9 @@ class PlateOCR:
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
 
+
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
+
         province_candidates_list = self._province_candidates_from_lines(line_texts)
         province = province_candidates_list[0]["name"] if province_candidates_list else ""
         province_score = province_candidates_list[0]["score"] if province_candidates_list else 0.0
@@ -457,13 +457,16 @@ class PlateOCR:
             variant_results[0] if variant_results else {},
         )
 
-
         best_summary = {
             "text": best["text"],
             "score": best["score"],
             "avg_conf": best["avg_conf"],
             "consensus_ratio": best["consensus_ratio"],
             "margin_ratio": margin_ratio,
+
+            "variant": best_variant.get("variant", ""),
+            "lines": best_variant.get("lines", []),
+
 
             "variant": best_variant.get("variant", ""),
             "lines": best_variant.get("lines", []),
