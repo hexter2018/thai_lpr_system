@@ -236,12 +236,7 @@ class PlateOCR:
         variant_name: str,
         detections: Sequence[Tuple[Any, str, float]],
         score_boost: float = 0.0,
-    ) -> Dict[str, Any]:
-
-
-    
-    def _evaluate_variant(self, variant_name: str, detections: Sequence[Tuple[Any, str, float]]) -> Dict[str, Any]:
-
+    ) -> Dict[str, Any]:   
         lines, tokens = self._group_tokens_to_lines(detections)
         line_texts = ["".join(tok["text"] for tok in line) for line in lines]
 
