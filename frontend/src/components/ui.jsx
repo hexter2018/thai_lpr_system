@@ -1,8 +1,16 @@
 import React from 'react'
 
-export function Card({ children, className = '' }) {
-  return <div className={`rounded-2xl border border-blue-200/20 bg-slate-900/70 p-4 shadow-lg shadow-blue-950/20 ${className}`}>{children}</div>
-}
+export const Card = React.forwardRef(function Card({ children, className = '', ...props }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={`rounded-2xl border border-blue-200/20 bg-slate-900/70 p-4 shadow-lg shadow-blue-950/20 ${className}`}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+})
 
 export function Button({ children, variant = 'primary', className = '', ...props }) {
   const base = 'inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50'
