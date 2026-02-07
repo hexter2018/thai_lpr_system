@@ -1,10 +1,11 @@
 import React from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { th } from '../lib/i18n.js'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'chart' },
   { to: '/upload', label: 'Upload', icon: 'upload' },
-  { to: '/queue', label: 'Verification', icon: 'queue' },
+  { to: '/queue', label: th.nav.verification, icon: 'queue' },
   { to: '/master', label: 'Master', icon: 'db' },
   { to: '/rtsp', label: 'RTSP', icon: 'cam' },
 ]
