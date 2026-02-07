@@ -56,6 +56,14 @@ _THAI_CONFUSION_PENALTY_REDUCTION = {
     ("ฆ", "ผ"): 0.08,
 }
 _CONFUSABLE_CHARS = set("ขฆมผปบดตซชศษ")
+_DIGIT_PREFIX_CONFUSION_MAP = {
+    "0": ("ก", "ด", "อ"),
+    "1": ("ด", "ก"),
+    "4": ("ข", "น"),
+    "6": ("บ", "ก"),
+    "7": ("ก", "ช"),
+    "9": ("ย", "ล"),
+}
 
 _DEFAULT_VARIANT_NAMES = (
     "gray",
@@ -233,7 +241,8 @@ class PlateOCR:
         line_texts = ["".join(tok["text"] for tok in line) for line in lines]
 
         top_line = line_texts[0] if line_texts else ""
-        plate_candidates = self._plate_candidates(top_line, tokens)
+        top_tokens = lines[0] if lines else []
+        plate_candidates = self._plate_candidates(top_line, tokens, top_tokens)
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
         province_candidates_list = self._province_candidates_from_lines(line_texts)
@@ -255,7 +264,12 @@ class PlateOCR:
             "tokens": tokens,
         }
 
-    def _plate_candidates(self, top_line: str, tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _plate_candidates(
+        self,
+        top_line: str,
+        tokens: List[Dict[str, Any]],
+        top_tokens: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         normalized = self._normalize_plate(top_line)
         if not normalized:
             return []
@@ -290,6 +304,30 @@ class PlateOCR:
                 "text": prefixed,
                 "confidence": max(0.0, min(base_conf + 0.1, 1.0)),
                 "score": base_conf + (0.22 if is_valid_plate(prefixed) else 0.02),
+            })
+
+        if normalized and not normalized[0].isdigit():
+            leading_digit = self._find_leading_digit(tokens, top_tokens)
+            if leading_digit:
+                prefixed = f"{leading_digit}{normalized}"
+                if is_valid_plate(prefixed):
+                    candidates.append({
+                        "name": "leading_digit_token",
+                        "text": prefixed,
+                        "confidence": max(0.0, min(base_conf + 0.12, 1.0)),
+                        "score": base_conf + 0.18,
+                    })
+
+        for alt_text, swaps in self._expand_digit_prefix_candidates(normalized):
+            if not is_valid_plate(alt_text):
+                continue
+            penalty = 0.05 * swaps
+            alt_format = self._plate_format_adjustment(alt_text)
+            candidates.append({
+                "name": f"digit_prefix_swap_{swaps}",
+                "text": alt_text,
+                "confidence": max(0.0, min(base_conf + 0.12 + alt_format - penalty, 1.0)),
+                "score": base_conf + 0.18 + alt_format - penalty,
             })
 
         candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -359,6 +397,8 @@ class PlateOCR:
         return [("roi_upscale", up), ("roi_clahe_sharpen", sharpen), ("roi_adaptive", adaptive)]
 
     def _plate_format_adjustment(self, text: str) -> float:
+        if re.match(r"^\d[ก-ฮ]{1,2}\d{1,4}$", text):
+            return 0.08
         if re.match(r"^[ก-ฮ]{2}\d{1,4}$", text):
             return 0.08
         if re.match(r"^[ก-ฮ]{1,2}\d{1,4}$", text):
@@ -659,4 +699,61 @@ class PlateOCR:
             seen.add(variant)
             unique.append((variant, swaps, reduction))
 
+        return unique[:6]
+
+    def _find_leading_digit(
+        self,
+        tokens: List[Dict[str, Any]],
+        top_tokens: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        if not tokens or not top_tokens:
+            return None
+        min_x = min(t["x"] for t in top_tokens)
+        center_y = float(np.mean([t["y"] for t in top_tokens]))
+        y_spread = max(6.0, np.std([t["y"] for t in top_tokens]) * 2.5)
+
+        candidates = [
+            t for t in tokens
+            if t["text"].isdigit()
+            and len(t["text"]) == 1
+            and t["x"] < (min_x - 4.0)
+            and abs(t["y"] - center_y) <= y_spread
+        ]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda t: t["conf"], reverse=True)
+        return candidates[0]["text"]
+
+    def _expand_digit_prefix_candidates(self, text: str) -> Iterable[Tuple[str, int]]:
+        if not text:
+            return []
+        prefix_start = 1 if text[0].isdigit() else 0
+        prefix = text[prefix_start:prefix_start + 2]
+        if not prefix or not any(ch.isdigit() for ch in prefix):
+            return []
+
+        options: List[List[str]] = []
+        swap_positions = 0
+        for ch in prefix:
+            if ch.isdigit() and ch in _DIGIT_PREFIX_CONFUSION_MAP:
+                options.append(list(_DIGIT_PREFIX_CONFUSION_MAP[ch]))
+                swap_positions += 1
+            else:
+                options.append([ch])
+
+        variants: List[Tuple[str, int]] = []
+        for choice in itertools.product(*options):
+            if "".join(choice) == prefix:
+                continue
+            swaps = sum(1 for orig, alt in zip(prefix, choice) if orig != alt)
+            fixed = text[:prefix_start] + "".join(choice) + text[prefix_start + len(prefix):]
+            variants.append((fixed, swaps))
+
+        seen = set()
+        unique: List[Tuple[str, int]] = []
+        for variant, swaps in variants:
+            if variant in seen:
+                continue
+            seen.add(variant)
+            unique.append((variant, swaps))
         return unique[:6]
