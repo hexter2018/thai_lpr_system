@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { absImageUrl, deleteRead, listPending, verifyRead } from '../lib/api.js'
 
 function confidenceClass(v) {
@@ -11,20 +11,31 @@ export default function Queue() {
   const [rows, setRows] = useState([])
   const [err, setErr] = useState('')
   const [busyId, setBusyId] = useState(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastRefresh, setLastRefresh] = useState(null)
+  const refreshInterval = 10000 // 10 seconds
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setErr('')
+    setIsRefreshing(true)
     try {
       const r = await listPending(200)
       setRows(r)
+      setLastRefresh(new Date())
     } catch (e) {
       setErr(String(e))
+    } finally {
+      setIsRefreshing(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     refresh()
-  }, [])
+  const timer = setInterval(() => {
+      refresh()
+    }, refreshIntervalMs)
+    return () => clearInterval(timer)
+  }, [refresh, refreshIntervalMs])
 
   async function confirm(id) {
     setBusyId(id)
@@ -65,15 +76,23 @@ export default function Queue() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-blue-300/20 bg-gradient-to-r from-blue-600/20 to-cyan-500/10 p-5">
+      <div className="rounded-2xl border border-blue-300/20 bg-gradient-to-r from-blue-600/20 via-blue-500/10 to-cyan-500/10 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-slate-100">Verification Queue</h1>
             <div className="text-sm text-slate-300">ตรวจผล OCR และยืนยัน/แก้ไขก่อนบันทึกเข้า Master</div>
+            <div className="mt-1 text-xs text-slate-400">Auto refresh ทุก {Math.round(refreshIntervalMs / 1000)} วินาที</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-blue-200/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-100">Pending {rows.length}</span>
-            <button className="btn-blue" onClick={refresh}>Refresh</button>
+              {lastUpdated && (
+              <span className="rounded-full border border-blue-200/20 bg-slate-900/40 px-3 py-1 text-xs text-slate-200">
+                Updated {lastUpdated.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            <button className="btn-blue" onClick={refresh} disabled={isRefreshing}>
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
         </div>
       </div>
@@ -149,8 +168,8 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
 
   return (
     <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-4 shadow-lg shadow-blue-950/10">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[560px_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-blue-300/15 bg-slate-950/40 p-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[600px_minmax(0,1fr)] 2xl:grid-cols-[640px_minmax(0,1fr)]">
+        <div className="rounded-2xl border border-blue-300/15 bg-slate-950/40 p-4">
           <div className="flex items-center justify-between pb-2">
             <div>
               <div className="text-xs uppercase tracking-wide text-slate-400">หลักฐานภาพ</div>
@@ -160,20 +179,20 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">Original</div>
-              <img className="h-48 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.original_url)} />
+              <img className="h-52 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.original_url)} />
             </div>
             <div>
               <div className="mb-1 text-xs uppercase tracking-wide text-slate-400">Crop plate</div>
-              <img className="h-48 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.crop_url)} />
+              <img className="h-52 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain" src={absImageUrl(r.crop_url)} />
             </div>
           </div>
         </div>
 
         <div className="space-y-4" onKeyDown={onKeyDown} tabIndex={0}>
-          <div className="rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3">
+          <div className="rounded-2xl border border-blue-300/15 bg-gradient-to-r from-slate-950/60 to-slate-950/30 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm text-slate-300">ผล OCR</div>
+                <div className="text-base font-semibold text-slate-100">ผล OCR</div>
                 <div className="text-xs text-slate-500">Enter = ยืนยัน, Ctrl+Enter = บันทึกแก้ไข</div>
               </div>
               <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
@@ -183,9 +202,9 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <label className="text-sm font-semibold text-slate-200">
+            <label className="text-base font-semibold text-slate-100">
               Plate
-              <input className="input-dark text-base md:text-lg" value={t} onChange={(e) => setT(e.target.value)} />
+              <input className="input-dark text-lg font-semibold tracking-wide md:text-xl" value={t} onChange={(e) => setT(e.target.value)} />
 
               <div className="mt-2">
                 <div className="text-xs text-slate-400">Quick fix:</div>
@@ -207,11 +226,11 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
               </div>
             </label>
 
-            <label className="text-sm font-semibold text-slate-200">
+            <label className="text-base font-semibold text-slate-100">
               Province
               <input
 
-                className={`input-dark text-base md:text-lg ${provinceMissing ? 'border-amber-300/50 bg-amber-500/5' : ''}`}
+                className={`input-dark text-lg font-semibold md:text-xl ${provinceMissing ? 'border-amber-300/50 bg-amber-500/5' : ''}`}
 
 
                 placeholder="ยังอ่านจังหวัดไม่ได้"
@@ -244,11 +263,11 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
             </label>
           </div>
 
-          <label className="text-sm font-semibold text-slate-200">
+          <label className="text-base font-semibold text-slate-100">
             Note
             <input
 
-              className="input-dark text-base md:text-lg"
+              className="input-dark text-lg md:text-xl"
 
 
               placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
@@ -258,22 +277,22 @@ function QueueItem({ r, busy, onConfirm, onCorrect, onDelete }) {
           </label>
 
 
-          <div className="grid grid-cols-1 gap-2 rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3 sm:grid-cols-2 lg:grid-cols-4">
-            <button disabled={busy} onClick={onConfirm} className="btn-blue w-full justify-center disabled:opacity-50">
+          <div className="flex flex-col gap-2 rounded-2xl border border-blue-300/15 bg-slate-950/35 p-3 sm:flex-row sm:flex-wrap lg:flex-nowrap">
+            <button disabled={busy} onClick={onConfirm} className="btn-blue w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1">
               ✓ Confirm
               <kbd className="ml-1 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
             </button>
-            <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft w-full justify-center disabled:opacity-50">
+            <button disabled={busy} onClick={() => onCorrect(t, p, note)} className="btn-soft w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1">
 
               💾 Save correction
               <kbd className="ml-1 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
             </button>
-            <button type="button" className="btn-soft w-full justify-center" onClick={() => setT(normalizePlateText(t))}>
+            <button type="button" className="btn-soft w-full justify-center whitespace-nowrap sm:w-auto lg:flex-1" onClick={() => setT(normalizePlateText(t))}>
               🔧 Normalize
             </button>
             <button
               type="button"
-              className="btn-soft w-full justify-center border border-rose-300/40 text-rose-200 hover:border-rose-300/70"
+              className="btn-soft w-full justify-center border whitespace-nowrap border border-rose-300/40 text-rose-200 hover:border-rose-300/70 sm:w-auto lg:flex-1"
               disabled={busy}
               onClick={() => {
                 if (window.confirm('ลบรายการนี้ออกจากคิวตรวจสอบใช่หรือไม่?')) {
