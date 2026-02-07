@@ -240,9 +240,8 @@ class PlateOCR:
         lines, tokens = self._group_tokens_to_lines(detections)
         line_texts = ["".join(tok["text"] for tok in line) for line in lines]
 
-        top_line = line_texts[0] if line_texts else ""
-        top_tokens = lines[0] if lines else []
-        plate_candidates = self._plate_candidates(top_line, tokens, top_tokens)
+        plate_line, plate_tokens = self._select_plate_line(lines)
+        plate_candidates = self._plate_candidates(plate_line, tokens, plate_tokens)
         best_plate = plate_candidates[0] if plate_candidates else {"text": "", "score": 0.0, "confidence": 0.0}
 
         province_candidates_list = self._province_candidates_from_lines(line_texts)
@@ -263,6 +262,29 @@ class PlateOCR:
             "province_candidates": province_candidates_list,
             "tokens": tokens,
         }
+
+    def _select_plate_line(self, lines: List[List[Dict[str, Any]]]) -> Tuple[str, List[Dict[str, Any]]]:
+        if not lines:
+            return "", []
+
+        best_line = lines[0]
+        best_score = float("-inf")
+
+        for line in lines:
+            text = "".join(tok["text"] for tok in line)
+            normalized = self._normalize_plate(text)
+            if not normalized:
+                continue
+            confs = [float(tok["conf"]) for tok in line] or [0.0]
+            base_conf = float(np.mean(confs))
+            digit_bonus = 0.02 * sum(ch.isdigit() for ch in normalized)
+            valid_bonus = 0.3 if is_valid_plate(normalized) else 0.0
+            score = base_conf + digit_bonus + valid_bonus
+            if score > best_score:
+                best_score = score
+                best_line = line
+
+        return "".join(tok["text"] for tok in best_line), best_line
 
     def _plate_candidates(
         self,
