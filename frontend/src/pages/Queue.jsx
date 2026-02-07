@@ -81,13 +81,13 @@ export default function Queue() {
           <div>
             <h1 className="text-2xl font-semibold text-slate-100">Verification Queue</h1>
             <div className="text-sm text-slate-300">ตรวจผล OCR และยืนยัน/แก้ไขก่อนบันทึกเข้า Master</div>
-            <div className="mt-1 text-xs text-slate-400">Auto refresh ทุก {Math.round(refreshIntervalMs / 1000)} วินาที</div>
+            <div className="mt-1 text-xs text-slate-400">Auto refresh ทุก {Math.round(refreshInterval / 1000)} วินาที</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-blue-200/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-100">Pending {rows.length}</span>
-              {lastUpdated && (
+              {lastRefresh && (
               <span className="rounded-full border border-blue-200/20 bg-slate-900/40 px-3 py-1 text-xs text-slate-200">
-                Updated {lastUpdated.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                Updated {lastRefresh.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
             <button className="btn-blue" onClick={refresh} disabled={isRefreshing}>
