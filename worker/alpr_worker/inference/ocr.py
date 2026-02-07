@@ -15,6 +15,12 @@ import numpy as np
 import torch
 
 from .provinces import match_province, normalize_province, province_candidates
+from .postprocess_thai_plate import (
+    load_province_prior,
+    normalize_plate_text,
+    rerank_plate_candidates,
+    resolve_province,
+)
 from .validate import is_valid_plate
 
 log = logging.getLogger(__name__)
@@ -54,8 +60,24 @@ _THAI_CONFUSION_PENALTY_REDUCTION = {
     ("ม", "ฆ"): 0.03,
     ("ผ", "ฆ"): 0.08,
     ("ฆ", "ผ"): 0.08,
+    ("ร", "ธ"): 0.05,
+    ("ธ", "ร"): 0.05,
+    ("น", "ม"): 0.05,
+    ("ม", "น"): 0.05,
+    ("ฌ", "ณ"): 0.05,
+    ("ณ", "ฌ"): 0.05,
+    ("ต", "ด"): 0.05,
+    ("ด", "ต"): 0.05,
+    ("ถ", "ก"): 0.05,
+    ("ก", "ถ"): 0.05,
+    ("ถ", "ค"): 0.05,
+    ("ค", "ถ"): 0.05,
+    ("ฎ", "ภ"): 0.05,
+    ("ภ", "ฎ"): 0.05,
+    ("ช", "ษ"): 0.04,
+    ("ษ", "ช"): 0.04,
 }
-_CONFUSABLE_CHARS = set("ขฆมผปบดตซชศษ")
+_CONFUSABLE_CHARS = set("ขฆมผปบดตซชศษรธนฌณถกคฎภ")
 _DIGIT_PREFIX_CONFUSION_MAP = {
     "0": ("ก", "ด", "อ"),
     "1": ("ด", "ก"),
@@ -106,6 +128,7 @@ class PlateOCR:
             os.getenv("OCR_DEBUG_CONFIDENCE_THRESHOLD", str(_DEFAULT_DEBUG_CONFIDENCE_THRESHOLD))
         )
         self.province_min_score = float(os.getenv("OCR_PROVINCE_MIN_SCORE", str(_DEFAULT_PROVINCE_MIN_SCORE)))
+        self.province_prior = load_province_prior(os.getenv("OCR_PROVINCE_PRIOR", ""))
 
     def _load_variant_names(self) -> List[str]:
         raw = os.getenv("OCR_VARIANTS", "")
@@ -136,7 +159,12 @@ class PlateOCR:
         best = aggregated["best"]
 
         roi_province = self._province_roi_pass(img)
-        province_info = self._aggregate_province_candidates(variant_results, roi_province)
+        line_province = self._province_line_pass(img)
+        province_info = self._aggregate_province_candidates(
+            variant_results,
+            roi_province=roi_province,
+            line_texts=line_province["texts"],
+        )
         final_province = province_info["province"]
 
         flags: List[str] = []
@@ -194,8 +222,10 @@ class PlateOCR:
                 "line_province": province_info.get("line_province", ""),
                 "line_province_score": province_info.get("line_province_score", 0.0),
                 "roi_province": roi_province,
+                "province_source": province_info.get("source", ""),
                 "plate_candidates": plate_candidates[: self.top_k],
                 "province_candidates": province_info["candidates"][: self.top_k],
+                "plate_suggestions": aggregated.get("suggestions", []),
                 "consensus_metrics": {
                     "consensus_ratio": best["consensus_ratio"],
                     "margin_ratio": best["margin_ratio"],
@@ -418,6 +448,29 @@ class PlateOCR:
         adaptive = cv2.adaptiveThreshold(sharpen, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
         return [("roi_upscale", up), ("roi_clahe_sharpen", sharpen), ("roi_adaptive", adaptive)]
 
+    def _province_line_pass(self, image: np.ndarray) -> Dict[str, Any]:
+        h, w = image.shape[:2]
+        start = int(h * 0.58)
+        roi = image[start:h, 0:w]
+        if roi.size == 0:
+            return {"texts": []}
+
+        texts: List[str] = []
+        for _, variant in self._build_province_roi_variants(roi):
+            detections = self.thai_reader.readtext(variant, detail=1, allowlist=_THAI_ONLY_ALLOWLIST)
+            for _, text, conf in detections:
+                if float(conf or 0.0) < 0.1:
+                    continue
+                normalized = self._normalize_text(text)
+                if normalized:
+                    texts.append(normalized)
+
+        merged = "".join(texts)
+        if merged:
+            texts.append(merged)
+
+        return {"texts": texts}
+
     def _plate_format_adjustment(self, text: str) -> float:
         if re.match(r"^\d[ก-ฮ]{1,2}\d{1,4}$", text):
             return 0.08
@@ -510,21 +563,21 @@ class PlateOCR:
                 "consensus_ratio": float(consensus_ratio),
             })
 
-        candidates.sort(key=lambda c: c["score"], reverse=True)
+        reranked = rerank_plate_candidates(
+            candidates,
+            variant_count=variant_count,
+            margin_min=self.margin_min,
+            consensus_min=self.consensus_min,
+        )
 
-        best = candidates[0] if candidates else {"text": "", "score": 0.0, "avg_conf": 0.0, "count": 0, "consensus_ratio": 0.0}
-        second = candidates[1] if len(candidates) > 1 else None
-
-        margin_ratio = 0.0
-        if second and best["score"] > 0:
-            margin_ratio = max(0.0, (best["score"] - second["score"]) / max(best["score"], 1e-6))
-        elif best["score"] > 0:
-            margin_ratio = 1.0
+        candidates = reranked.candidates
+        best = reranked.best
+        margin_ratio = reranked.margin_ratio
 
         best_variant = next(
             (
                 v for v in sorted(variant_results, key=lambda x: x.get("score", 0.0), reverse=True)
-                if v.get("plate_text") == best["text"]
+                if normalize_plate_text(v.get("plate_text", "")) == best["text"]
             ),
             variant_results[0] if variant_results else {},
         )
@@ -544,12 +597,15 @@ class PlateOCR:
             "candidates": candidates,
             "variant_candidates": flat,
             "variant_count": variant_count,
+            "suggestions": reranked.suggestions,
+            "flags": reranked.flags,
         }
 
     def _aggregate_province_candidates(
         self,
         variant_results: List[Dict[str, Any]],
         roi_province: Dict[str, Any],
+        line_texts: List[str],
     ) -> Dict[str, Any]:
         candidate_map: Dict[str, float] = {}
         for variant in variant_results:
@@ -561,22 +617,24 @@ class PlateOCR:
                 if name not in candidate_map or score > candidate_map[name]:
                     candidate_map[name] = score
 
-        if roi_province.get("province"):
-            roi_score = float(roi_province.get("score") or 0.0)
-            candidate_map[roi_province["province"]] = max(candidate_map.get(roi_province["province"], 0.0), roi_score)
-
-        candidates = [
+        fallback_candidates = [
             {"name": name, "score": score}
             for name, score in sorted(candidate_map.items(), key=lambda item: item[1], reverse=True)
         ]
-        best = candidates[0] if candidates else {"name": "", "score": 0.0}
-        final_name = best["name"] if best["score"] >= self.province_min_score else ""
+        resolved = resolve_province(
+            line_texts=line_texts,
+            roi_province=roi_province,
+            fallback_candidates=fallback_candidates,
+            min_score=self.province_min_score,
+            prior=self.province_prior,
+        )
 
         return {
-            "province": final_name,
-            "candidates": candidates,
-            "line_province": best["name"],
-            "line_province_score": best["score"],
+            "province": resolved.province,
+            "candidates": resolved.candidates,
+            "line_province": resolved.candidates[0]["name"] if resolved.candidates else "",
+            "line_province_score": resolved.candidates[0]["score"] if resolved.candidates else 0.0,
+            "source": resolved.source,
         }
 
     def _calibrate_confidence(self, best: Dict[str, Any], flags: List[str]) -> float:
