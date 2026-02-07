@@ -17,7 +17,7 @@ It is designed to run **immediately** even if you haven't installed YOLO/TensorR
 
 ### 1) Start backend + worker + DB + Redis
 ```bash
-cd thai-alpr
+cd thai_lpr_system
 docker compose up --build
 ```
 
@@ -28,7 +28,7 @@ docker compose up --build
 ### Windows (Docker Desktop → Linux containers)
 Use the CPU worker and localhost defaults:
 ```bash
-cd thai-alpr
+cd thai_lpr_system
 docker compose -f docker-compose.windows.yml up --build
 ```
 
@@ -38,7 +38,7 @@ docker compose -f docker-compose.windows.yml up --build
 #### Windows + GPU (Docker Desktop + WSL2)
 If you have NVIDIA GPU support enabled in Docker Desktop (WSL2 backend), use:
 ```bash
-cd thai-alpr
+cd thai_lpr_system
 docker compose -f docker-compose.windows.gpu.yml up --build
 ```
 
