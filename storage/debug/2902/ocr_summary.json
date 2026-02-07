@@ -1,0 +1,40 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "5ขท8247",
+      "score": 1.2276400211336558,
+      "avg_conf": 0.6138200105668279,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "5ข118247",
+      "score": 0.826349471236371,
+      "avg_conf": 0.4131747356181855,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "5ขท18247",
+      "score": 0.5328904106675513,
+      "avg_conf": 0.26644520533377564,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 72.0
+    },
+    {
+      "name": "ราชบุรี",
+      "score": 60.00000000000001
+    }
+  ]
+}

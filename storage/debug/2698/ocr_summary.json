@@ -1,0 +1,36 @@
+{
+  "flags": [
+    "low_confidence",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ญก8191",
+      "score": 4.243661438151856,
+      "avg_conf": 0.7072769063586426,
+      "count": 6,
+      "consensus_ratio": 1.0
+    },
+    {
+      "text": "1ญก8191",
+      "score": 3.5836614381518563,
+      "avg_conf": 0.4772769063586428,
+      "count": 6,
+      "consensus_ratio": 1.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "จันทบุรี",
+      "score": 67.5
+    },
+    {
+      "name": "นนทบุรี",
+      "score": 67.5
+    },
+    {
+      "name": "กระบี่",
+      "score": 60.00000000000001
+    }
+  ]
+}

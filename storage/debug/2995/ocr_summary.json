@@ -1,0 +1,36 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆล46",
+      "score": 4.205039055959865,
+      "avg_conf": 0.9681755002560362,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "มล46",
+      "score": 2.117041383312896,
+      "avg_conf": 0.9724320244212672,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "ผล46",
+      "score": 2.057041383312896,
+      "avg_conf": 0.9574320244212673,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 75.0
+    }
+  ]
+}

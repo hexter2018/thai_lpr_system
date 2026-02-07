@@ -1,0 +1,37 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆย377",
+      "score": 1.742601913891248,
+      "avg_conf": 0.871300956945624,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "มย377",
+      "score": 1.722601913891248,
+      "avg_conf": 0.861300956945624,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "ผย377",
+      "score": 1.6626019138912482,
+      "avg_conf": 0.8313009569456241,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "น่าน",
+      "score": 60.00000000000001
+    }
+  ]
+}

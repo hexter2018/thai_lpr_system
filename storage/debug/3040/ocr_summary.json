@@ -1,0 +1,42 @@
+{
+  "flags": [
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "3ขณ2833",
+      "score": 5.191152906635347,
+      "avg_conf": 0.858017212162821,
+      "count": 6,
+      "consensus_ratio": 0.8571428571428571
+    },
+    {
+      "text": "3ขก2833",
+      "score": 1.2698791123300381,
+      "avg_conf": 0.6049395561650192,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "3ขด2833",
+      "score": 0.5583356298188836,
+      "avg_conf": 0.49833562981888374,
+      "count": 0,
+      "consensus_ratio": 0.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 100.0
+    },
+    {
+      "name": "นนทบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    }
+  ]
+}

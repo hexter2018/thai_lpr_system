@@ -1,0 +1,41 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ญป9951",
+      "score": 2.669333853327412,
+      "avg_conf": 0.887112192972899,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "ญบ9951",
+      "score": 2.549333853327412,
+      "avg_conf": 0.8497779511091373,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "1ญบ9951",
+      "score": 2.219333853327412,
+      "avg_conf": 0.6197779511091374,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 72.72727272727273
+    }
+  ]
+}

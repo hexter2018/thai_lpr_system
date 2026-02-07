@@ -1,0 +1,35 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "3กท4591",
+      "score": 1.4819226494030924,
+      "avg_conf": 0.47397421646769744,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    },
+    {
+      "text": "3กก4591",
+      "score": 0.9760839731967497,
+      "avg_conf": 0.4280419865983749,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    },
+    {
+      "text": "3ข591",
+      "score": 0.6837361410445824,
+      "avg_conf": 0.6237361410445824,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    }
+  ]
+}

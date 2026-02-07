@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6ก38784",
+      "score": 0.5088113453204067,
+      "avg_conf": 0.25440567266020336,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "6038784",
+      "score": 0.3108931528216551,
+      "avg_conf": 0.3108931528216551,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "ยองะ",
+      "score": 0.143328666506097,
+      "avg_conf": 0.143328666506097,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 72.0
+    },
+    {
+      "name": "ระยอง",
+      "score": 67.5
+    }
+  ]
+}

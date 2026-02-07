@@ -1,0 +1,44 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "5ขร6591",
+      "score": 2.172616788074552,
+      "avg_conf": 0.7242055960248507,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "5ข56591",
+      "score": 0.3746523959749981,
+      "avg_conf": 0.3746523959749981,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "5ิขร6591",
+      "score": 0.23863454076533547,
+      "avg_conf": 0.23863454076533547,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 100.0
+    },
+    {
+      "name": "อุทัยธานี",
+      "score": 75.00000000000001
+    },
+    {
+      "name": "พระนครศรีอยุธยา",
+      "score": 75.00000000000001
+    }
+  ]
+}

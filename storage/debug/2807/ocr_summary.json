@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6019808",
+      "score": 0.8948803461471716,
+      "avg_conf": 0.4474401730735858,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "สีบะปกิ",
+      "score": 0.27261132962691575,
+      "avg_conf": 0.27261132962691575,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "6ก19808",
+      "score": 0.260148895128178,
+      "avg_conf": 0.260148895128178,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "สระแก้ว",
+      "score": 72.0
+    },
+    {
+      "name": "สระบุรี",
+      "score": 72.0
+    },
+    {
+      "name": "สุราษฎร์ธานี",
+      "score": 72.0
+    }
+  ]
+}

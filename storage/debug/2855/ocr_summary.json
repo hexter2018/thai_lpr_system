@@ -1,0 +1,29 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "5กม6586",
+      "score": 3.7688873004032963,
+      "avg_conf": 0.6281478834005494,
+      "count": 6,
+      "consensus_ratio": 1.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 72.0
+    },
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    }
+  ]
+}

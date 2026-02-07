@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "306",
+      "score": 1.3779016070298022,
+      "avg_conf": 0.6889508035149011,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "ภก306",
+      "score": 0.8107015727829633,
+      "avg_conf": 0.8107015727829633,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "ภณ306",
+      "score": 0.7802717240288882,
+      "avg_conf": 0.7802717240288882,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "เลย",
+      "score": 90.0
+    },
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "มหาสารคาม",
+      "score": 67.5
+    }
+  ]
+}

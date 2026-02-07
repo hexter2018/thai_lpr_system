@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "5ก25187",
+      "score": 1.1606510062104944,
+      "avg_conf": 0.3868836687368315,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "5กา5187",
+      "score": 0.37149571363865064,
+      "avg_conf": 0.37149571363865064,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "5กว5187",
+      "score": 0.32462648278384326,
+      "avg_conf": 0.32462648278384326,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 80.0
+    },
+    {
+      "name": "ลำพูน",
+      "score": 67.5
+    },
+    {
+      "name": "พระนครศรีอยุธยา",
+      "score": 67.5
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆท9880",
+      "score": 2.402126954219376,
+      "avg_conf": 0.800708984739792,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "มท9880",
+      "score": 2.3721269542193757,
+      "avg_conf": 0.7907089847397919,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "ขธ9880",
+      "score": 2.282126954219376,
+      "avg_conf": 0.760708984739792,
+      "count": 3,
+      "consensus_ratio": 0.5
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ฉะเชิงเทรา",
+      "score": 75.00000000000001
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 72.0
+    }
+  ]
+}

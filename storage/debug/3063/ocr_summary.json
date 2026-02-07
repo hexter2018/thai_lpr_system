@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ญณ137",
+      "score": 2.913477147316383,
+      "avg_conf": 0.9365755100471883,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "กก137",
+      "score": 1.98817464495178,
+      "avg_conf": 0.9195746752324614,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "ญญ137",
+      "score": 0.8093257790458818,
+      "avg_conf": 0.8093257790458818,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ขอนแก่น",
+      "score": 90.0
+    },
+    {
+      "name": "ร้อยเอ็ด",
+      "score": 90.0
+    },
+    {
+      "name": "ระนอง",
+      "score": 90.0
+    }
+  ]
+}

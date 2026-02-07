@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "21ส8427",
+      "score": 1.1921337482210608,
+      "avg_conf": 0.39737791607368694,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "20ส8427",
+      "score": 0.541232485223929,
+      "avg_conf": 0.2706162426119645,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "2ฒส8422",
+      "score": 0.42437403365329146,
+      "avg_conf": 0.42437403365329146,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กระบี่",
+      "score": 80.66666666666667
+    },
+    {
+      "name": "สมุทรสาคร",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 67.5
+    }
+  ]
+}

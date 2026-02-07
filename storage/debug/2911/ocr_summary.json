@@ -1,0 +1,44 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ปน1087",
+      "score": 2.8226921728723595,
+      "avg_conf": 0.8683808619044142,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "บน1087",
+      "score": 2.7026921728723594,
+      "avg_conf": 0.8417141952377475,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "1บน1087",
+      "score": 2.37269217287236,
+      "avg_conf": 0.6708973909574532,
+      "count": 3,
+      "consensus_ratio": 0.5
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นครราชสีมา",
+      "score": 72.0
+    },
+    {
+      "name": "น่าน",
+      "score": 72.0
+    },
+    {
+      "name": "อุบลราชธานี",
+      "score": 72.0
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ถฆ29",
+      "score": 1.915089022570256,
+      "avg_conf": 0.947682671246431,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "ถม29",
+      "score": 1.895089022570256,
+      "avg_conf": 0.9426826712464311,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "ถผ29",
+      "score": 1.835089022570256,
+      "avg_conf": 0.917544511285128,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 81.81818181818181
+    },
+    {
+      "name": "พระนครศรีอยุธยา",
+      "score": 72.0
+    },
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "2ขค718",
+      "score": 0.5453911903361307,
+      "avg_conf": 0.5453911903361307,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "2ณค713",
+      "score": 0.4641241682034128,
+      "avg_conf": 0.4641241682034128,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "2ณค718",
+      "score": 0.44789882180965007,
+      "avg_conf": 0.44789882180965007,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นนทบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 75.00000000000001
+    }
+  ]
+}

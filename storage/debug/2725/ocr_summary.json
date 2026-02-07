@@ -1,0 +1,29 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "5ขภ9829",
+      "score": 3.9766378729771326,
+      "avg_conf": 0.6627729788295221,
+      "count": 6,
+      "consensus_ratio": 1.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กาญจนบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "กาฬสินธุ์",
+      "score": 90.0
+    },
+    {
+      "name": "ขอนแก่น",
+      "score": 90.0
+    }
+  ]
+}

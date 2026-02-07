@@ -1,0 +1,38 @@
+{
+  "flags": [
+    "low_confidence"
+  ],
+  "plate_candidates": [
+    {
+      "text": "4กท9727",
+      "score": 2.5029722590468046,
+      "avg_conf": 0.6257430647617012,
+      "count": 4,
+      "consensus_ratio": 0.5714285714285714
+    },
+    {
+      "text": "40ท9727",
+      "score": 0.490206998162593,
+      "avg_conf": 0.490206998162593,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "4กท9721",
+      "score": 0.4001638697602999,
+      "avg_conf": 0.4001638697602999,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 83.33333333333334
+    },
+    {
+      "name": "สมุทรสาคร",
+      "score": 80.0
+    }
+  ]
+}

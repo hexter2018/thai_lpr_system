@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "low_confidence",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "กต1789",
+      "score": 3.525207318006717,
+      "avg_conf": 0.8813018295016792,
+      "count": 4,
+      "consensus_ratio": 0.6666666666666666
+    },
+    {
+      "text": "กด1789",
+      "score": 3.4452073180067173,
+      "avg_conf": 0.8613018295016793,
+      "count": 4,
+      "consensus_ratio": 0.6666666666666666
+    },
+    {
+      "text": "1กด1789",
+      "score": 2.195346462060061,
+      "avg_conf": 0.6117821540200203,
+      "count": 3,
+      "consensus_ratio": 0.5
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ศรีสะเกษ",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "ภูเก็ต",
+      "score": 75.0
+    }
+  ]
+}

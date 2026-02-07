@@ -1,0 +1,41 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆศ8067",
+      "score": 2.7995444826807105,
+      "avg_conf": 0.9278917087064534,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "ขส8067",
+      "score": 2.6795444826807104,
+      "avg_conf": 0.8931814942269035,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "ขษ8067",
+      "score": 2.6795444826807104,
+      "avg_conf": 0.8931814942269035,
+      "count": 3,
+      "consensus_ratio": 0.5
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 69.56521739130434
+    }
+  ]
+}

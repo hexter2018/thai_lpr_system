@@ -1,0 +1,36 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6ขฆ1007",
+      "score": 2.3275418544080577,
+      "avg_conf": 0.5818854636020144,
+      "count": 4,
+      "consensus_ratio": 0.6666666666666666
+    },
+    {
+      "text": "6ข41007",
+      "score": 0.24534052689543412,
+      "avg_conf": 0.12267026344771706,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นนทบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 72.0
+    },
+    {
+      "name": "น่าน",
+      "score": 72.0
+    }
+  ]
+}

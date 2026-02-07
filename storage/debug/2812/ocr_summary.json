@@ -1,0 +1,36 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "8กฎ2452",
+      "score": 0.7603975529297132,
+      "avg_conf": 0.7603975529297132,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "8032452",
+      "score": 0.6567488257247034,
+      "avg_conf": 0.3283744128623517,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "9022452",
+      "score": 0.21057454573404238,
+      "avg_conf": 0.21057454573404238,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ราชบุรี",
+      "score": 60.00000000000001
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "flags": [
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6ขญ1400",
+      "score": 5.670059573835488,
+      "avg_conf": 0.8743942812849111,
+      "count": 6,
+      "consensus_ratio": 0.8571428571428571
+    },
+    {
+      "text": "6ขก1400",
+      "score": 1.0208075970256578,
+      "avg_conf": 1.0,
+      "count": 0,
+      "consensus_ratio": 0.0
+    },
+    {
+      "text": "ฆญ1400",
+      "score": 0.8032341202013966,
+      "avg_conf": 0.8032341202013966,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 100.0
+    }
+  ]
+}

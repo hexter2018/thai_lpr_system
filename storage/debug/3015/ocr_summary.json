@@ -1,0 +1,45 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ธป2255",
+      "score": 3.7662361637449218,
+      "avg_conf": 0.851325294548589,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "ทบ2255",
+      "score": 3.7662361637449218,
+      "avg_conf": 0.851325294548589,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "ธบ2255",
+      "score": 3.6062361637449216,
+      "avg_conf": 0.8213252945485889,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 81.81818181818181
+    },
+    {
+      "name": "ขอนแก่น",
+      "score": 77.33333333333333
+    },
+    {
+      "name": "พระนครศรีอยุธยา",
+      "score": 75.00000000000001
+    }
+  ]
+}

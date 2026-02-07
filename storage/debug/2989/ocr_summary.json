@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "4ข41235",
+      "score": 1.0881121258876743,
+      "avg_conf": 0.27202803147191856,
+      "count": 4,
+      "consensus_ratio": 0.5714285714285714
+    },
+    {
+      "text": "4021235",
+      "score": 0.7670215916993288,
+      "avg_conf": 0.7670215916993288,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "4ขฆ1235",
+      "score": 0.596791375942091,
+      "avg_conf": 0.596791375942091,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ขอนแก่น",
+      "score": 90.0
+    },
+    {
+      "name": "แพร่",
+      "score": 90.0
+    },
+    {
+      "name": "สระแก้ว",
+      "score": 90.0
+    }
+  ]
+}

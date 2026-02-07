@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "กจ18",
+      "score": 3.4606203732194514,
+      "avg_conf": 1.0,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "18",
+      "score": 0.9147727437420559,
+      "avg_conf": 0.9147727437420559,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "แน18",
+      "score": 0.46027566042752416,
+      "avg_conf": 0.46027566042752416,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ปทุมธานี",
+      "score": 100.0
+    },
+    {
+      "name": "น่าน",
+      "score": 72.0
+    },
+    {
+      "name": "อุทัยธานี",
+      "score": 65.45454545454547
+    }
+  ]
+}

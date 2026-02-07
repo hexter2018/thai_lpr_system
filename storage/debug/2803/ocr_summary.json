@@ -1,0 +1,45 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ขา4699",
+      "score": 0.7343631818073247,
+      "avg_conf": 0.36718159090366237,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "ฆ4699",
+      "score": 0.6232710232184228,
+      "avg_conf": 0.6232710232184228,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "ม4699",
+      "score": 0.6132710232184228,
+      "avg_conf": 0.6132710232184228,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ปทุมธานี",
+      "score": 83.33333333333334
+    },
+    {
+      "name": "น่าน",
+      "score": 72.0
+    },
+    {
+      "name": "จันทบุรี",
+      "score": 67.5
+    }
+  ]
+}

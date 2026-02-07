@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "3ขฆ2010",
+      "score": 2.24381579068922,
+      "avg_conf": 0.560953947672305,
+      "count": 4,
+      "consensus_ratio": 0.5714285714285714
+    },
+    {
+      "text": "3ข42010",
+      "score": 0.9335391233112187,
+      "avg_conf": 0.46676956165560934,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    },
+    {
+      "text": "คาขขา0",
+      "score": 0.344419365560915,
+      "avg_conf": 0.344419365560915,
+      "count": 0,
+      "consensus_ratio": 0.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "สมุทรปราการ",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 69.56521739130434
+    }
+  ]
+}

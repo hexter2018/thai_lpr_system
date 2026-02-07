@@ -1,0 +1,45 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆ3078",
+      "score": 1.0070097295576155,
+      "avg_conf": 1.0,
+      "count": 0,
+      "consensus_ratio": 0.0
+    },
+    {
+      "text": "ม3078",
+      "score": 0.9970097295576155,
+      "avg_conf": 0.9970097295576155,
+      "count": 0,
+      "consensus_ratio": 0.0
+    },
+    {
+      "text": "ผ3078",
+      "score": 0.9670097295576154,
+      "avg_conf": 0.9670097295576154,
+      "count": 0,
+      "consensus_ratio": 0.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ขอนแก่น",
+      "score": 77.33333333333333
+    },
+    {
+      "name": "สมุทรปราการ",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กระบี่",
+      "score": 75.0
+    }
+  ]
+}

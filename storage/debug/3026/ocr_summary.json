@@ -1,0 +1,44 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ญง2111",
+      "score": 1.7486957915807977,
+      "avg_conf": 0.5828985971935993,
+      "count": 3,
+      "consensus_ratio": 0.42857142857142855
+    },
+    {
+      "text": "กง2111",
+      "score": 1.6437405192675123,
+      "avg_conf": 0.8218702596337562,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "1กง2111",
+      "score": 1.4237405192675123,
+      "avg_conf": 0.5918702596337562,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 81.81818181818181
+    },
+    {
+      "name": "พระนครศรีอยุธยา",
+      "score": 81.81818181818181
+    },
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "4กก3917",
+      "score": 2.3190129467383254,
+      "avg_conf": 0.7730043155794418,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "เกฎ3917",
+      "score": 0.36522562424350896,
+      "avg_conf": 0.36522562424350896,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "เกฎง917",
+      "score": 0.33519534729879796,
+      "avg_conf": 0.33519534729879796,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 60.86956521739131
+    }
+  ]
+}

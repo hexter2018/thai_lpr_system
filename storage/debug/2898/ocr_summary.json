@@ -1,0 +1,24 @@
+{
+  "flags": [
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6ขอ4178",
+      "score": 4.397896050800936,
+      "avg_conf": 0.7328282941115974,
+      "count": 6,
+      "consensus_ratio": 1.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 100.0
+    },
+    {
+      "name": "สมุทรสาคร",
+      "score": 69.23076923076923
+    }
+  ]
+}

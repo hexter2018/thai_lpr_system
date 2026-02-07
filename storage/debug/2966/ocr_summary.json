@@ -1,0 +1,44 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฮซ8058",
+      "score": 0.5016240568004886,
+      "avg_conf": 0.5016240568004886,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "ฮฃ8058",
+      "score": 0.5016240568004886,
+      "avg_conf": 0.5016240568004886,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "ฮช8058",
+      "score": 0.46162405680048857,
+      "avg_conf": 0.46162405680048857,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 75.0
+    },
+    {
+      "name": "ตรัง",
+      "score": 72.0
+    }
+  ]
+}

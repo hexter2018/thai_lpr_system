@@ -1,0 +1,24 @@
+{
+  "flags": [
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6ขจ6848",
+      "score": 4.598708454310118,
+      "avg_conf": 0.7664514090516863,
+      "count": 6,
+      "consensus_ratio": 1.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 81.81818181818181
+    },
+    {
+      "name": "พระนครศรีอยุธยา",
+      "score": 72.0
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "4ภบ2333",
+      "score": 1.1646123399239112,
+      "avg_conf": 0.5823061699619556,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "4กบ2333",
+      "score": 0.5831162973244516,
+      "avg_conf": 0.5831162973244516,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "4กบ23อ3",
+      "score": 0.33276111437856726,
+      "avg_conf": 0.33276111437856726,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 77.33333333333333
+    },
+    {
+      "name": "อุดรธานี",
+      "score": 72.0
+    },
+    {
+      "name": "สมุทรปราการ",
+      "score": 67.5
+    }
+  ]
+}

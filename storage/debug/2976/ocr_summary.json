@@ -1,0 +1,29 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "3ขภ2280",
+      "score": 2.064501497531102,
+      "avg_conf": 0.6881671658437006,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "3ขก2280",
+      "score": 1.3051403063888618,
+      "avg_conf": 0.4350467687962873,
+      "count": 3,
+      "consensus_ratio": 0.5
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 100.0
+    }
+  ]
+}

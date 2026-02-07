@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "4ภ5676",
+      "score": 2.0910210852159175,
+      "avg_conf": 0.6970070284053058,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "4ก45676",
+      "score": 0.35421431043141105,
+      "avg_conf": 0.35421431043141105,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "4ภ55676",
+      "score": 0.06950820132854986,
+      "avg_conf": 0.06950820132854986,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 83.33333333333334
+    },
+    {
+      "name": "บุรีรัมย์",
+      "score": 72.0
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "low_confidence",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "กต5369",
+      "score": 3.4364621370764614,
+      "avg_conf": 0.8591155342691154,
+      "count": 4,
+      "consensus_ratio": 0.6666666666666666
+    },
+    {
+      "text": "กด5369",
+      "score": 3.4364621370764614,
+      "avg_conf": 0.8591155342691154,
+      "count": 4,
+      "consensus_ratio": 0.6666666666666666
+    },
+    {
+      "text": "1กต5369",
+      "score": 1.4752167317600728,
+      "avg_conf": 0.6176083658800364,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นนทบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "ราชบุรี",
+      "score": 67.5
+    }
+  ]
+}

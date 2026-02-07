@@ -1,0 +1,40 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "กก1234",
+      "score": 3.24134513699366,
+      "avg_conf": 0.9620321098504955,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    },
+    {
+      "text": "1กก1234",
+      "score": 2.91134513699366,
+      "avg_conf": 0.8174678504251925,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    },
+    {
+      "text": "1234",
+      "score": 1.226085226787127,
+      "avg_conf": 0.6130426133935635,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นครศรีธรรมราช",
+      "score": 77.33333333333333
+    },
+    {
+      "name": "แม่ฮ่องสอน",
+      "score": 72.0
+    }
+  ]
+}

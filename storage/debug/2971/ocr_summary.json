@@ -1,0 +1,28 @@
+{
+  "flags": [
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "2ขท408",
+      "score": 4.692340402134797,
+      "avg_conf": 0.7820567336891329,
+      "count": 6,
+      "consensus_ratio": 1.0
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 78.26086956521739
+    },
+    {
+      "name": "กระบี่",
+      "score": 77.14285714285715
+    },
+    {
+      "name": "นราธิวาส",
+      "score": 72.0
+    }
+  ]
+}

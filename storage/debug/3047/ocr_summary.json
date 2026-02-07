@@ -1,0 +1,44 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "1268",
+      "score": 1.3794438891985183,
+      "avg_conf": 0.6897219445992592,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "2บ8",
+      "score": 1.1966076871441527,
+      "avg_conf": 1.0,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "2ก8",
+      "score": 1.1966076871441527,
+      "avg_conf": 1.0,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นครราชสีมา",
+      "score": 67.5
+    },
+    {
+      "name": "สมุทรปราการ",
+      "score": 67.5
+    },
+    {
+      "name": "สมุทรสงคราม",
+      "score": 67.5
+    }
+  ]
+}

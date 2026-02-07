@@ -1,0 +1,40 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars"
+  ],
+  "plate_candidates": [
+    {
+      "text": "2กข7818",
+      "score": 1.2141879330446677,
+      "avg_conf": 0.6070939665223338,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "20ข7818",
+      "score": 0.47066157809934434,
+      "avg_conf": 0.23533078904967217,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "2ก27818",
+      "score": 0.27593335428700433,
+      "avg_conf": 0.13796667714350216,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ชัยภูมิ",
+      "score": 90.0
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 65.45454545454547
+    }
+  ]
+}

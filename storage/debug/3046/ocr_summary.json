@@ -1,0 +1,44 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ศฐ5771",
+      "score": 4.483437075735632,
+      "avg_conf": 0.8446660906616946,
+      "count": 4,
+      "consensus_ratio": 0.5714285714285714
+    },
+    {
+      "text": "ษฐ5771",
+      "score": 4.483437075735632,
+      "avg_conf": 0.8446660906616946,
+      "count": 4,
+      "consensus_ratio": 0.5714285714285714
+    },
+    {
+      "text": "สฐ5771",
+      "score": 4.283437075735632,
+      "avg_conf": 0.8163111759426522,
+      "count": 4,
+      "consensus_ratio": 0.5714285714285714
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ชัยภูมิ",
+      "score": 90.0
+    },
+    {
+      "name": "ภูเก็ต",
+      "score": 90.0
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 81.81818181818181
+    }
+  ]
+}

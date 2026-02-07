@@ -1,0 +1,37 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆก2020",
+      "score": 3.1102639073427705,
+      "avg_conf": 0.9905574158291657,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "มก2020",
+      "score": 3.0802639073427702,
+      "avg_conf": 0.9872240824958323,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "ผก2020",
+      "score": 2.9902639073427704,
+      "avg_conf": 0.9741737214347288,
+      "count": 3,
+      "consensus_ratio": 0.5
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 83.33333333333334
+    }
+  ]
+}

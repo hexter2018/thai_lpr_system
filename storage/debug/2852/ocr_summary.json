@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "5ก24640",
+      "score": 0.9016174355982616,
+      "avg_conf": 0.30053914519942054,
+      "count": 3,
+      "consensus_ratio": 0.5
+    },
+    {
+      "text": "5กข4640",
+      "score": 0.5565446335185228,
+      "avg_conf": 0.5565446335185228,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "5ก14640",
+      "score": 0.43378631344703916,
+      "avg_conf": 0.43378631344703916,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "ชัยภูมิ",
+      "score": 90.0
+    },
+    {
+      "name": "ภูเก็ต",
+      "score": 90.0
+    },
+    {
+      "name": "หนองบัวลำภู",
+      "score": 76.22222222222223
+    }
+  ]
+}

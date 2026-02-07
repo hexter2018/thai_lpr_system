@@ -1,0 +1,45 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "ฆส9251",
+      "score": 0.9402691747613505,
+      "avg_conf": 0.9402691747613505,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    },
+    {
+      "text": "6ขส9251",
+      "score": 0.9363424613358898,
+      "avg_conf": 0.4681712306679449,
+      "count": 2,
+      "consensus_ratio": 0.2857142857142857
+    },
+    {
+      "text": "ขศ9251",
+      "score": 0.9002691747613505,
+      "avg_conf": 0.9002691747613505,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นนทบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "กระบี่",
+      "score": 90.0
+    },
+    {
+      "name": "ขอนแก่น",
+      "score": 90.0
+    }
+  ]
+}

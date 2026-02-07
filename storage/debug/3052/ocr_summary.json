@@ -1,0 +1,40 @@
+{
+  "flags": [
+    "low_confidence",
+    "confusable_chars",
+    "tight_margin"
+  ],
+  "plate_candidates": [
+    {
+      "text": "6กด889",
+      "score": 2.2427523559073546,
+      "avg_conf": 0.3885504711814709,
+      "count": 5,
+      "consensus_ratio": 0.7142857142857143
+    },
+    {
+      "text": "6กก889",
+      "score": 2.2427523559073546,
+      "avg_conf": 0.3885504711814709,
+      "count": 5,
+      "consensus_ratio": 0.7142857142857143
+    },
+    {
+      "text": "6กท889",
+      "score": 1.8371724599517538,
+      "avg_conf": 0.8921053818813165,
+      "count": 1,
+      "consensus_ratio": 0.14285714285714285
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "นนทบุรี",
+      "score": 90.0
+    },
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 78.26086956521739
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "flags": [
+    "low_confidence",
+    "low_consensus"
+  ],
+  "plate_candidates": [
+    {
+      "text": "วก7453",
+      "score": 0.5136288547240679,
+      "avg_conf": 0.5136288547240679,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    },
+    {
+      "text": "9017453",
+      "score": 0.42507822863202976,
+      "avg_conf": 0.21253911431601488,
+      "count": 2,
+      "consensus_ratio": 0.3333333333333333
+    },
+    {
+      "text": "1วก7453",
+      "score": 0.40362885472406795,
+      "avg_conf": 0.28362885472406796,
+      "count": 1,
+      "consensus_ratio": 0.16666666666666666
+    }
+  ],
+  "province_candidates": [
+    {
+      "name": "กรุงเทพมหานคร",
+      "score": 75.66666666666667
+    },
+    {
+      "name": "บุรีรัมย์",
+      "score": 67.5
+    },
+    {
+      "name": "ลพบุรี",
+      "score": 67.5
+    }
+  ]
+}
