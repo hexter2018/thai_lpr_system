@@ -1,6 +1,5 @@
 import React from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'chart' },
   { to: '/upload', label: 'Upload', icon: 'upload' },
