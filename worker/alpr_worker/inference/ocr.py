@@ -406,11 +406,16 @@ class PlateOCR:
         return -0.08
 
     def _format_plate_display(self, text: str) -> str:
-        match = re.match(r"^([ก-ฮ]{1,2})(\d{1,4})$", text or "")
-        if not match:
-            return text or ""
-        prefix, digits = match.groups()
-        return f"{prefix} {digits}"
+        text = text or ""
+        match = re.match(r"^(\d)([ก-ฮ]{1,2})(\d{1,4})$", text)
+        if match:
+            digit, prefix, digits = match.groups()
+            return f"{digit}{prefix} {digits}"
+        match = re.match(r"^([ก-ฮ]{1,2})(\d{1,4})$", text)
+        if match:
+            prefix, digits = match.groups()
+            return f"{prefix} {digits}"
+        return text
 
     def _province_candidates_from_lines(self, line_texts: List[str]) -> List[Dict[str, Any]]:
         bottom_line = line_texts[1] if len(line_texts) > 1 else ""
