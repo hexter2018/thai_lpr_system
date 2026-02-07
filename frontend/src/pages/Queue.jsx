@@ -33,9 +33,9 @@ export default function Queue() {
     refresh()
   const timer = setInterval(() => {
       refresh()
-    }, refreshIntervalMs)
+    }, refreshInterval)
     return () => clearInterval(timer)
-  }, [refresh, refreshIntervalMs])
+  }, [refresh, refreshInterval])
 
   async function confirm(id) {
     setBusyId(id)
