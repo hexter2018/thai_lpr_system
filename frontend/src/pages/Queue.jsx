@@ -1,632 +1,79 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useState, useRef } from 'react'
 import { absImageUrl, deleteRead, listPending, verifyRead } from '../lib/api.js'
-import { formatTemplate, th } from '../lib/i18n.js'
+import { 
+  Button, 
+  Card, 
+  CardHeader, 
+  CardBody,
+  Input, 
+  Badge, 
+  ConfidenceBadge, 
+  Toast, 
+  Modal,
+  EmptyState,
+  Spinner 
+} from '../components/ui/UIComponents.jsx'
 
-function confidenceClass(v) {
-  if (v >= 0.95) return 'text-emerald-200 border-emerald-300/40 bg-emerald-500/10'
-  if (v >= 0.85) return 'text-amber-200 border-amber-300/40 bg-amber-500/10'
-  return 'text-rose-200 border-rose-300/40 bg-rose-500/10'
+/* ===== PROVINCES DATA ===== */
+const POPULAR_PROVINCES = [
+  { value: 'กรุงเทพมหานคร', label: 'กทม', icon: '🏙️' },
+  { value: 'สมุทรปราการ', label: 'ปราการ', icon: '🏭' },
+  { value: 'สมุทรสาคร', label: 'สาคร', icon: '⚓' },
+  { value: 'นนทบุรี', label: 'นนท์', icon: '🏘️' },
+  { value: 'ปทุมธานี', label: 'ปทุม', icon: '🌾' },
+  { value: 'ชลบุรี', label: 'ชล', icon: '🏖️' }
+]
+
+/* ===== CONFUSABLE CHARACTER FIXES ===== */
+const CONFUSION_FIXES = {
+  high: [
+    { from: 'ข', to: 'ฆ', tooltip: 'ข เป็น ฆ (สับสนบ่อย)' },
+    { from: 'ฆ', to: 'ข', tooltip: 'ฆ เป็น ข (สับสนบ่อย)' },
+    { from: 'ข', to: 'ม', tooltip: 'ข เป็น ม (สับสนบ่อย)' },
+    { from: 'ม', to: 'ข', tooltip: 'ม เป็น ข (สับสนบ่อย)' }
+  ],
+  medium: [
+    { from: 'ค', to: 'ฅ', tooltip: 'ค เป็น ฅ' },
+    { from: 'ถ', to: 'ค', tooltip: 'ถ เป็น ค' },
+    { from: 'ศ', to: 'ส', tooltip: 'ศ เป็น ส' },
+    { from: 'ผ', to: 'พ', tooltip: 'ผ เป็น พ' },
+    { from: 'พ', to: 'ผ', tooltip: 'พ เป็น ผ' },
+    { from: 'บ', to: 'ป', tooltip: 'บ เป็น ป' },
+    { from: 'ป', to: 'บ', tooltip: 'ป เป็น บ' }
+  ]
 }
 
-function isTypingTarget(target) {
-  if (!target) return false
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable
-}
-
-function useToastQueue() {
-  const [toasts, setToasts] = useState([])
-
-  const pushToast = useCallback((message, tone = 'info') => {
-    const id = `${Date.now()}-${Math.random()}`
-    setToasts((prev) => [...prev, { id, message, tone }])
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id))
-    }, 2800)
-  }, [])
-
-  return { toasts, pushToast }
-}
-
-export default function Queue() {
-  const copy = th.queue
-  const [rows, setRows] = useState([])
-  const [err, setErr] = useState('')
-  const [busyId, setBusyId] = useState(null)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastRefresh, setLastRefresh] = useState(null)
-  const refreshInterval = 10000 // 10 seconds
-  const { toasts, pushToast } = useToastQueue()
-
-  const refresh = useCallback(async () => {
-    setErr('')
-    setIsRefreshing(true)
-    try {
-      const r = await listPending(200)
-      setRows(r)
-      setLastRefresh(new Date())
-    } catch (e) {
-      setErr(String(e))
-    } finally {
-      setIsRefreshing(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    refresh()
-    const timer = setInterval(() => {
-      refresh()
-    }, refreshInterval)
-    return () => clearInterval(timer)
-  }, [refresh, refreshInterval])
-
-  async function confirm(id) {
-    setBusyId(id)
-    try {
-      await verifyRead(id, { action: 'confirm', user: 'reviewer' })
-      await refresh()
-      pushToast(copy.actionConfirmToast, 'success')
-    } catch (e) {
-      setErr(String(e))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function correct(id, corrected_text, corrected_province, note = '') {
-    setBusyId(id)
-    try {
-      await verifyRead(id, { action: 'correct', corrected_text, corrected_province, note, user: 'reviewer' })
-      await refresh()
-      pushToast(copy.actionSaveToast, 'success')
-    } catch (e) {
-      setErr(String(e))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function remove(id) {
-    setBusyId(id)
-    setErr('')
-    try {
-      await deleteRead(id)
-      await refresh()
-      pushToast(copy.actionDeleteToast, 'danger')
-    } catch (e) {
-      setErr(String(e))
-    } finally {
-      setBusyId(null)
-    }
-  }
-
+/* ===== TOAST CONTAINER ===== */
+function ToastContainer({ toasts }) {
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
-      <div className="rounded-2xl border border-blue-300/20 bg-gradient-to-r from-blue-600/20 via-blue-500/10 to-cyan-500/10 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-100">{copy.title}</h1>
-            <div className="text-sm text-slate-200">{copy.subtitle}</div>
-            <div className="mt-1 text-xs text-slate-400">
-              {formatTemplate(copy.autoRefresh, { seconds: Math.round(refreshInterval / 1000) })}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-blue-200/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-100">
-              {formatTemplate(copy.pending, { count: rows.length })}
-            </span>
-            {lastRefresh && (
-              <span className="rounded-full border border-blue-200/20 bg-slate-900/40 px-3 py-1 text-xs text-slate-200">
-                {formatTemplate(copy.updated, {
-                  time: lastRefresh.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
-                })}
-              </span>
-            )}
-            <button className="btn-blue" onClick={refresh} disabled={isRefreshing}>
-              {isRefreshing ? copy.refreshing : copy.refresh}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {err && <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 p-3 text-rose-200">{err}</div>}
-
-      <div className="space-y-4">
-        {rows.map((r) => (
-          <QueueItem
-            key={r.id}
-            r={r}
-            busy={busyId === r.id}
-            onConfirm={() => confirm(r.id)}
-            onCorrect={(t, p, n) => correct(r.id, t, p, n)}
-            onDelete={() => remove(r.id)}
-            onToast={pushToast}
-          />
-        ))}
-        {!rows.length && !err && (
-          <div className="rounded-2xl border border-blue-300/20 bg-slate-900/50 p-10 text-center text-slate-300">
-            {copy.empty}
-          </div>
-        )}
-      </div>
-
-      <ToastStack toasts={toasts} />
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 max-w-md">
+      {toasts.map(toast => (
+        <Toast 
+          key={toast.id} 
+          message={toast.message} 
+          type={toast.type}
+        />
+      ))}
     </div>
   )
 }
 
-export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) {
-  const copy = th.queue
-  const [t, setT] = useState(r.plate_text || '')
-  const [p, setP] = useState(r.province || '')
-  const [note, setNote] = useState('')
-  const [highlightField, setHighlightField] = useState(null)
-  const [lastChange, setLastChange] = useState(null)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [viewer, setViewer] = useState({ open: false, src: '', title: '' })
-  const provinceMissing = !p.trim()
-
-  const commonFixes = useMemo(
-    () => [
-      { from: 'ข', to: 'ฆ', label: 'ข→ฆ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ข', to: 'ฆ' }), group: 'high' },
-      { from: 'ฆ', to: 'ข', label: 'ฆ→ข', desc: formatTemplate(copy.quickFixTooltip, { from: 'ฆ', to: 'ข' }), group: 'high' },
-      { from: 'ข', to: 'ม', label: 'ข→ม', desc: formatTemplate(copy.quickFixTooltip, { from: 'ข', to: 'ม' }), group: 'high' },
-      { from: 'ม', to: 'ข', label: 'ม→ข', desc: formatTemplate(copy.quickFixTooltip, { from: 'ม', to: 'ข' }), group: 'high' },
-      { from: 'ค', to: 'ฅ', label: 'ค→ฅ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ค', to: 'ฅ' }), group: 'medium' },
-      { from: 'ถ', to: 'ค', label: 'ถ→ค', desc: formatTemplate(copy.quickFixTooltip, { from: 'ถ', to: 'ค' }), group: 'medium' },
-      { from: 'ศ', to: 'ส', label: 'ศ→ส', desc: formatTemplate(copy.quickFixTooltip, { from: 'ศ', to: 'ส' }), group: 'medium' },
-      { from: 'ผ', to: 'พ', label: 'ผ→พ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ผ', to: 'พ' }), group: 'medium' },
-      { from: 'พ', to: 'ผ', label: 'พ→ผ', desc: formatTemplate(copy.quickFixTooltip, { from: 'พ', to: 'ผ' }), group: 'medium' },
-      { from: 'บ', to: 'ป', label: 'บ→ป', desc: formatTemplate(copy.quickFixTooltip, { from: 'บ', to: 'ป' }), group: 'medium' },
-      { from: 'ป', to: 'บ', label: 'ป→บ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ป', to: 'บ' }), group: 'medium' },
-    ],
-    [copy.quickFixTooltip],
-  )
-
-  const highPriorityFixes = commonFixes.filter(f => f.group === 'high')
-  const mediumPriorityFixes = commonFixes.filter(f => f.group === 'medium')
-
-  const provinceShortcuts = useMemo(
-    () => [
-      { value: 'กรุงเทพมหานคร', label: 'กทม', icon: '🏙️' },
-      { value: 'สมุทรปราการ', label: 'ปราการ', icon: '🏭' },
-      { value: 'สมุทรสาคร', label: 'สาคร', icon: '⚓' },
-      { value: 'นนทบุรี', label: 'นนท์', icon: '🏘️' },
-      { value: 'ปทุมธานี', label: 'ปทุม', icon: '🌾' },
-      { value: 'ชลบุรี', label: 'ชล', icon: '🏖️' },
-    ],
-    [],
-  )
-
-  useEffect(() => {
-    if (!highlightField) return
-    const timer = setTimeout(() => setHighlightField(null), 1600)
-    return () => clearTimeout(timer)
-  }, [highlightField])
-
-  function setFieldChange(field, nextValue, label) {
-    const previousValue = field === 'plate' ? t : p
-    if (previousValue === nextValue) return
-    setLastChange({ field, previousValue, nextValue, label })
-    if (field === 'plate') {
-      setT(nextValue)
-    } else {
-      setP(nextValue)
-    }
-    setHighlightField(field)
-  }
-
-  function applyFix(from, to) {
-    const next = t.replace(new RegExp(from, 'g'), to)
-    setFieldChange('plate', next, `${from}→${to}`)
-  }
-
-  function normalizePlateText(raw) {
-    return (raw || '')
-      .trim()
-      .replace(/[\s\-.]/g, '')
-      .replace(/[๐-๙]/g, (d) => '๐๑๒๓๔๕๖๗๘๙'.indexOf(d))
-      .toUpperCase()
-  }
-
-  function handleNormalize() {
-    const next = normalizePlateText(t)
-    setFieldChange('plate', next, copy.normalize)
-    onToast?.(copy.actionNormalizeToast, 'info')
-  }
-
-  function handleUndo() {
-    if (!lastChange) return
-    if (lastChange.field === 'plate') {
-      setT(lastChange.previousValue)
-    } else {
-      setP(lastChange.previousValue)
-    }
-    setHighlightField(lastChange.field)
-    setLastChange(null)
-  }
-
-  function handleKeyDown(e) {
-    if (busy) return
-    if (e.key === 'Enter' && e.ctrlKey) {
-      e.preventDefault()
-      onCorrect(t, p, note)
-      return
-    }
-    if (e.key === 'Enter' && !e.ctrlKey) {
-      if (e.target.tagName === 'TEXTAREA') return
-      e.preventDefault()
-      onConfirm()
-      return
-    }
-    if (!isTypingTarget(e.target)) {
-      if (e.key === 'n' || e.key === 'N') {
-        e.preventDefault()
-        handleNormalize()
-      }
-      if (e.key === 'Delete') {
-        e.preventDefault()
-        setDeleteOpen(true)
-      }
-    }
-  }
-
-  function openViewer(src, title) {
-    setViewer({ open: true, src, title })
-  }
-
-  return (
-    <div className="rounded-2xl border border-blue-300/20 bg-slate-900/60 p-4 shadow-lg shadow-blue-950/10">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[620px_minmax(0,1fr)] 2xl:grid-cols-[680px_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-blue-300/15 bg-slate-950/40 p-4">
-          <div className="flex items-center justify-between pb-2">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-slate-300">{copy.evidenceTitle}</div>
-              <div className="text-xs text-slate-500">{copy.evidenceSubtitle}</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <div>
-              <div className="mb-1 text-xs uppercase tracking-wide text-slate-300">{copy.original}</div>
-              <div className="relative">
-                <img
-                  className="h-44 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain md:h-48"
-                  src={absImageUrl(r.original_url)}
-                  alt={copy.original}
-                  onClick={() => openViewer(absImageUrl(r.original_url), copy.original)}
-                />
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-100 hover:border-white/30"
-                  onClick={() => openViewer(absImageUrl(r.original_url), copy.original)}
-                >
-                  ⛶ {copy.openFull}
-                </button>
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 text-xs uppercase tracking-wide text-slate-300">{copy.cropPlate}</div>
-              <div className="relative">
-                <img
-                  className="h-52 w-full rounded-xl border border-blue-300/20 bg-slate-950/40 object-contain md:h-60"
-                  src={absImageUrl(r.crop_url)}
-                  alt={copy.cropPlate}
-                  onClick={() => openViewer(absImageUrl(r.crop_url), copy.cropPlate)}
-                />
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 rounded-lg border border-white/10 bg-slate-900/80 px-2 py-1 text-xs text-slate-100 hover:border-white/30"
-                  onClick={() => openViewer(absImageUrl(r.crop_url), copy.cropPlate)}
-                >
-                  ⛶ {copy.openFull}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ✅ Main form with delete button on the side */}
-        <div className="flex gap-3">
-          <div className="flex-1 flex flex-col" onKeyDown={handleKeyDown} tabIndex={0}>
-            <div className="rounded-2xl border border-blue-300/20 bg-slate-950/70 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-base font-semibold text-slate-100">{copy.ocrTitle}</div>
-                  <div className="text-xs text-slate-400">{copy.ocrHint}</div>
-                </div>
-                
-                <div className="space-y-2">
-                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
-                    {((r.confidence ?? 0) * 100).toFixed(1)}%
-                  </span>
-                  
-                  <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full transition-all duration-500 ${
-                        (r.confidence ?? 0) >= 0.95 ? 'bg-emerald-500' :
-                        (r.confidence ?? 0) >= 0.85 ? 'bg-amber-500' : 
-                        (r.confidence ?? 0) >= 0.60 ? 'bg-orange-500' :
-                        'bg-rose-500'
-                      }`}
-                      style={{ width: `${(r.confidence ?? 0) * 100}%` }}
-                    />
-                  </div>
-                  
-                  <div className="flex justify-between text-[10px]">
-                    <span className="text-rose-400">ต่ำ</span>
-                    <span className="text-amber-400">ปานกลาง</span>
-                    <span className="text-emerald-400">สูง</span>
-                  </div>
-                  
-                  {(r.confidence ?? 0) < 0.6 && (
-                    <div className="flex items-center gap-2 p-2 rounded-lg bg-rose-500/10 border border-rose-300/30">
-                      <span className="text-rose-400">⚠️</span>
-                      <span className="text-xs text-rose-200">ควรตรวจสอบอย่างละเอียด</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="mt-2 text-xs text-slate-500">{copy.shortcutsHint}</div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <label className="text-base font-semibold text-slate-100">
-                {copy.plate}
-                <input
-                  className={`input-dark mt-2 text-lg font-semibold tracking-wide md:text-xl ${
-                    highlightField === 'plate' ? 'ring-2 ring-blue-300/60' : ''
-                  }`}
-                  placeholder={copy.platePlaceholder}
-                  value={t}
-                  onChange={(e) => setT(e.target.value)}
-                />
-
-                <div className="mt-3 space-y-2">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <div className="w-1 h-3 bg-rose-400 rounded-full"></div>
-                      <span className="text-xs text-slate-400 font-medium">สับสนบ่อย</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {highPriorityFixes.map((fix) => (
-                        <button
-                          key={fix.label}
-                          type="button"
-                          title={fix.desc}
-                          className="min-h-[28px] rounded-lg border border-rose-300/40 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 transition hover:bg-rose-500/20 hover:border-rose-300/60"
-                          onClick={() => applyFix(fix.from, fix.to)}
-                        >
-                          {fix.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <div className="w-1 h-3 bg-amber-400 rounded-full"></div>
-                      <span className="text-xs text-slate-400 font-medium">อื่นๆ</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {mediumPriorityFixes.map((fix) => (
-                        <button
-                          key={fix.label}
-                          type="button"
-                          title={fix.desc}
-                          className="min-h-[28px] rounded-lg border border-amber-300/40 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-100 transition hover:bg-amber-500/20 hover:border-amber-300/60"
-                          onClick={() => applyFix(fix.from, fix.to)}
-                        >
-                          {fix.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </label>
-
-              <label className="text-base font-semibold text-slate-100">
-                {copy.province}
-                <input
-                  className={`input-dark mt-2 text-lg font-semibold md:text-xl ${
-                    provinceMissing ? 'border-amber-300/50 bg-amber-500/10' : ''
-                  } ${highlightField === 'province' ? 'ring-2 ring-blue-300/60' : ''}`}
-                  placeholder={copy.provincePlaceholder}
-                  value={p}
-                  onChange={(e) => setP(e.target.value)}
-                />
-
-                <div className="mt-3">
-                  <div className="text-xs text-slate-300">{copy.provinceHeading}</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {provinceShortcuts.map((prov) => (
-                      <button
-                        key={prov.value}
-                        type="button"
-                        title={prov.value}
-                        className="min-h-[34px] rounded-lg border border-blue-300/30 bg-slate-800/80 px-3 py-1 text-sm text-blue-100 transition hover:border-blue-300/60 hover:bg-blue-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
-                        onClick={() => setFieldChange('province', prov.value, prov.value)}
-                      >
-                        {prov.icon} {prov.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {provinceMissing && <div className="mt-2 text-xs text-amber-200">{copy.provinceMissing}</div>}
-              </label>
-            </div>
-
-            <label className="mt-4 text-base font-semibold text-slate-100">
-              {copy.note}
-              <input
-                className="input-dark mt-2 text-lg md:text-xl"
-                placeholder={copy.notePlaceholder}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </label>
-
-            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-              {lastChange ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-slate-300">{copy.undo}:</span>
-                  <span className="rounded-full border border-blue-300/30 bg-slate-900/70 px-2 py-0.5 text-slate-200">
-                    {lastChange.label}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleUndo}
-                    className="rounded-full border border-blue-300/40 px-3 py-1 text-xs text-blue-100 hover:border-blue-300/70"
-                  >
-                    {copy.undo}
-                  </button>
-                </div>
-              ) : (
-                <span className="text-slate-500">{copy.shortcutsHint}</span>
-              )}
-            </div>
-
-            <div className="sticky bottom-0 mt-4 flex flex-col gap-2 rounded-2xl border border-blue-300/20 bg-slate-900/90 p-3 shadow-lg shadow-blue-950/20 sm:flex-row sm:flex-wrap lg:flex-nowrap">
-              <button
-                disabled={busy}
-                onClick={onConfirm}
-                className="btn-blue w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1"
-              >
-                {busy ? copy.loading : `✓ ${copy.confirm}`}
-                <kbd className="ml-2 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => onCorrect(t, p, note)}
-                className="btn-soft w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1"
-              >
-                💾 {copy.saveCorrection}
-                <kbd className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
-              </button>
-              <button
-                type="button"
-                className="btn-soft w-full justify-center whitespace-nowrap sm:w-auto lg:flex-1"
-                onClick={handleNormalize}
-              >
-                🔧 {copy.normalize}
-              </button>
-            </div>
-          </div>
-
-          {/* ✅ Delete button on the side */}
-          <div className="flex flex-col justify-start pt-16">
-            <button
-              type="button"
-              className="rounded-xl border border-rose-300/60 bg-rose-500/10 p-3 text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-50"
-              disabled={busy}
-              onClick={() => setDeleteOpen(true)}
-              title={copy.delete}
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <DeleteConfirmModal
-        open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
-        onConfirm={() => {
-          setDeleteOpen(false)
-          onDelete()
-        }}
-        plate={t}
-        province={p}
-        confidence={(r.confidence ?? 0).toFixed(3)}
-      />
-
-      <ImageViewerModal
-        open={viewer.open}
-        src={viewer.src}
-        title={viewer.title}
-        onClose={() => setViewer({ open: false, src: '', title: '' })}
-      />
-    </div>
-  )
-}
-
-function DeleteConfirmModal({ open, onClose, onConfirm, plate, province, confidence }) {
-  const copy = th.queue
-  const modalRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleKey(e) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [open, onClose])
-
-  useEffect(() => {
-    if (open) {
-      modalRef.current?.focus()
-    }
-  }, [open])
-
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
-      <div
-        ref={modalRef}
-        tabIndex={-1}
-        className="w-full max-w-md rounded-2xl border border-rose-300/40 bg-slate-900 p-5 text-slate-100 shadow-xl"
-      >
-        <div className="text-lg font-semibold text-rose-100">{copy.deleteTitle}</div>
-        <p className="mt-2 text-sm text-slate-300">{copy.deleteBody}</p>
-        <div className="mt-4 rounded-xl border border-rose-300/30 bg-rose-500/5 p-3 text-sm">
-          <div className="flex justify-between gap-3">
-            <span className="text-slate-400">{copy.plate}</span>
-            <span className="font-semibold text-slate-100">{plate || '-'}</span>
-          </div>
-          <div className="mt-2 flex justify-between gap-3">
-            <span className="text-slate-400">{copy.province}</span>
-            <span className="font-semibold text-slate-100">{province || '-'}</span>
-          </div>
-          <div className="mt-2 flex justify-between gap-3">
-            <span className="text-slate-400">{copy.confidenceLabel}</span>
-            <span className="font-semibold text-slate-100">{confidence}</span>
-          </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            className="rounded-xl border border-slate-500/40 px-4 py-2 text-sm text-slate-200 hover:border-slate-400/70"
-            onClick={onClose}
-          >
-            {copy.deleteCancel}
-          </button>
-          <button
-            type="button"
-            className="rounded-xl border border-rose-300/60 bg-rose-500/20 px-4 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-500/30"
-            onClick={onConfirm}
-          >
-            {copy.deleteConfirm}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ImageViewerModal({ open, src, title, onClose }) {
+/* ===== IMAGE VIEWER MODAL ===== */
+function ImageViewer({ open, src, title, onClose }) {
   const [scale, setScale] = useState(1)
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, x: 0, y: 0 })
 
   useEffect(() => {
     if (!open) return
-    function handleKey(e) {
+    
+    const handleKey = (e) => {
       if (e.key === 'Escape') onClose()
+      if (e.key === '+' || e.key === '=') setScale(s => Math.min(4, s + 0.2))
+      if (e.key === '-') setScale(s => Math.max(0.5, s - 0.2))
+      if (e.key === '0') { setScale(1); setPosition({ x: 0, y: 0 }) }
     }
+    
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [open, onClose])
@@ -640,87 +87,644 @@ function ImageViewerModal({ open, src, title, onClose }) {
 
   if (!open) return null
 
-  function onWheel(e) {
+  const handleWheel = (e) => {
     e.preventDefault()
     const delta = e.deltaY * -0.001
-    setScale((prev) => Math.min(4, Math.max(0.8, prev + delta)))
+    setScale(s => Math.min(4, Math.max(0.5, s + delta)))
   }
 
-  function onMouseDown(e) {
+  const handleMouseDown = (e) => {
     dragState.current = {
       dragging: true,
       startX: e.clientX,
       startY: e.clientY,
       x: position.x,
-      y: position.y,
+      y: position.y
     }
   }
 
-  function onMouseMove(e) {
+  const handleMouseMove = (e) => {
     if (!dragState.current.dragging) return
     const dx = e.clientX - dragState.current.startX
     const dy = e.clientY - dragState.current.startY
     setPosition({ x: dragState.current.x + dx, y: dragState.current.y + dy })
   }
 
-  function onMouseUp() {
+  const handleMouseUp = () => {
     dragState.current.dragging = false
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/90" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-slate-100">
-        <div className="text-sm font-semibold">{title}</div>
-        <button
-          type="button"
-          className="rounded-lg border border-white/10 px-3 py-1 text-xs text-slate-200 hover:border-white/30"
-          onClick={onClose}
-        >
-          {th.queue.close} · {th.queue.escHint}
-        </button>
+    <div 
+      className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-700/50 px-6 py-4 bg-slate-900/50">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Zoom: {(scale * 100).toFixed(0)}% • คลิกค้างและลากเพื่อเลื่อน • เลื่อนล้อเมาส์เพื่อซูม
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setScale(s => Math.max(0.5, s - 0.2))}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+            </svg>
+          </Button>
+          <Badge variant="default" size="sm">{(scale * 100).toFixed(0)}%</Badge>
+          <Button variant="ghost" size="sm" onClick={() => setScale(s => Math.min(4, s + 0.2))}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </Button>
+          <div className="w-px h-6 bg-slate-700/50 mx-2" />
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            ปิด (Esc)
+          </Button>
+        </div>
       </div>
-      <div className="flex-1 overflow-hidden" onWheel={onWheel}>
-        <div
-          className="flex h-full w-full items-center justify-center"
-          onMouseDown={onMouseDown}
-          onMouseLeave={onMouseUp}
-        >
+
+      {/* Image Container */}
+      <div className="flex-1 overflow-hidden" onWheel={handleWheel}>
+        <div className="flex h-full w-full items-center justify-center p-8">
           <img
             src={src}
             alt={title}
-            className="max-h-[85vh] max-w-[90vw] select-none"
+            className="max-h-full max-w-full select-none shadow-2xl rounded-lg"
             style={{
               transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
               cursor: dragState.current.dragging ? 'grabbing' : 'grab',
+              transition: dragState.current.dragging ? 'none' : 'transform 0.1s ease-out'
             }}
+            onMouseDown={handleMouseDown}
             draggable={false}
           />
         </div>
-      </div>
-      <div className="border-t border-white/10 px-4 py-2 text-xs text-slate-300">
-        {th.queue.imageViewerHint}
       </div>
     </div>
   )
 }
 
-function ToastStack({ toasts }) {
+/* ===== DELETE CONFIRMATION MODAL ===== */
+function DeleteConfirmModal({ open, onClose, onConfirm, plate, province, confidence }) {
+  if (!open) return null
+
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
-      {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          className={`rounded-xl border px-4 py-3 text-sm shadow-lg ${
-            toast.tone === 'danger'
-              ? 'border-rose-300/50 bg-rose-500/20 text-rose-100'
-              : toast.tone === 'success'
-                ? 'border-emerald-300/50 bg-emerald-500/20 text-emerald-100'
-                : 'border-blue-300/40 bg-blue-500/10 text-blue-100'
-          }`}
-        >
-          {toast.message}
+    <Modal open={open} onClose={onClose} title="ยืนยันการลบรายการ" size="sm">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-300">
+          โปรดยืนยันการลบรายการต่อไปนี้จากคิวตรวจสอบ
+        </p>
+        
+        <Card className="bg-rose-500/5 border-rose-300/30">
+          <CardBody className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">ป้ายทะเบียน</span>
+              <span className="font-semibold text-slate-100">{plate || '-'}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">จังหวัด</span>
+              <span className="font-semibold text-slate-100">{province || '-'}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">ความมั่นใจ</span>
+              <span className="font-semibold text-slate-100">{confidence}</span>
+            </div>
+          </CardBody>
+        </Card>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="secondary" onClick={onClose}>
+            ยกเลิก
+          </Button>
+          <Button variant="danger" onClick={onConfirm}>
+            ยืนยันการลบ
+          </Button>
         </div>
-      ))}
+      </div>
+    </Modal>
+  )
+}
+
+/* ===== VERIFICATION ITEM ===== */
+function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast }) {
+  const [plateText, setPlateText] = useState(item.plate_text || '')
+  const [province, setProvince] = useState(item.province || '')
+  const [note, setNote] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerSrc, setViewerSrc] = useState('')
+  const [viewerTitle, setViewerTitle] = useState('')
+  const [lastChange, setLastChange] = useState(null)
+  const [highlightField, setHighlightField] = useState(null)
+
+  const provinceMissing = !province.trim()
+
+  useEffect(() => {
+    if (!highlightField) return
+    const timer = setTimeout(() => setHighlightField(null), 1600)
+    return () => clearTimeout(timer)
+  }, [highlightField])
+
+  const handleKeyDown = useCallback((e) => {
+    if (busy) return
+    
+    const isTyping = ['INPUT', 'TEXTAREA'].includes(e.target.tagName)
+    
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault()
+      onCorrect(plateText, province, note)
+    } else if (e.key === 'Enter' && !e.ctrlKey && !isTyping) {
+      e.preventDefault()
+      onConfirm()
+    } else if (e.key === 'Delete' && !isTyping) {
+      e.preventDefault()
+      setDeleteOpen(true)
+    } else if ((e.key === 'n' || e.key === 'N') && !isTyping) {
+      e.preventDefault()
+      handleNormalize()
+    }
+  }, [busy, plateText, province, note, onConfirm, onCorrect])
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
+
+  const applyFix = (from, to) => {
+    const next = plateText.replace(new RegExp(from, 'g'), to)
+    setLastChange({ field: 'plate', from, to, prev: plateText })
+    setPlateText(next)
+    setHighlightField('plate')
+    onToast?.(`แทนที่ ${from} → ${to}`, 'info')
+  }
+
+  const handleNormalize = () => {
+    const normalized = plateText
+      .trim()
+      .replace(/[\s\-.]/g, '')
+      .replace(/[๐-๙]/g, (d) => '๐๑๒๓๔๕๖๗๘๙'.indexOf(d))
+      .toUpperCase()
+    setLastChange({ field: 'plate', prev: plateText })
+    setPlateText(normalized)
+    setHighlightField('plate')
+    onToast?.('จัดรูปแบบป้ายทะเบียนแล้ว', 'info')
+  }
+
+  const handleUndo = () => {
+    if (!lastChange) return
+    if (lastChange.field === 'plate') {
+      setPlateText(lastChange.prev)
+      setHighlightField('plate')
+    }
+    setLastChange(null)
+  }
+
+  const openViewer = (src, title) => {
+    setViewerSrc(src)
+    setViewerTitle(title)
+    setViewerOpen(true)
+  }
+
+  return (
+    <>
+      <Card className="p-5">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[600px_minmax(0,1fr)]">
+          {/* Left: Image Evidence */}
+          <div>
+            <CardHeader className="px-0 pt-0">
+              <h3 className="text-sm font-semibold text-slate-100">หลักฐานภาพ</h3>
+              <p className="text-xs text-slate-400 mt-0.5">ดูภาพรวมและภาพป้ายเพื่อยืนยัน</p>
+            </CardHeader>
+            
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              {/* Original Image */}
+              <div>
+                <div className="text-xs font-medium text-slate-400 mb-2">ภาพต้นฉบับ</div>
+                <div 
+                  className="relative group cursor-pointer rounded-xl overflow-hidden border border-blue-300/20 hover:border-blue-400/40 transition-colors"
+                  onClick={() => openViewer(absImageUrl(item.original_url), 'ภาพต้นฉบับ')}
+                >
+                  <img
+                    src={absImageUrl(item.original_url)}
+                    alt="Original"
+                    className="w-full h-44 object-contain bg-slate-950/40"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
+                    <Badge variant="primary" size="sm">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                      </svg>
+                      คลิกเพื่อดูขนาดเต็ม
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cropped Plate */}
+              <div>
+                <div className="text-xs font-medium text-slate-400 mb-2">ภาพป้ายที่ตัดออก</div>
+                <div 
+                  className="relative group cursor-pointer rounded-xl overflow-hidden border border-blue-300/20 hover:border-blue-400/40 transition-colors"
+                  onClick={() => openViewer(absImageUrl(item.crop_url), 'ภาพป้ายที่ตัดออก')}
+                >
+                  <img
+                    src={absImageUrl(item.crop_url)}
+                    alt="Cropped Plate"
+                    className="w-full h-44 object-contain bg-slate-950/40"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
+                    <Badge variant="primary" size="sm">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                      </svg>
+                      คลิกเพื่อดูขนาดเต็ม
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Form & Actions */}
+          <div className="flex flex-col">
+            <CardHeader className="px-0 pt-0 pb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-100">ผล OCR และการตรวจสอบ</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Enter = ยืนยัน • Ctrl+Enter = บันทึกการแก้ไข • N = จัดรูปแบบ • Delete = ลบ
+                  </p>
+                </div>
+                <ConfidenceBadge score={item.confidence || 0} />
+              </div>
+            </CardHeader>
+
+            {/* Plate Input */}
+            <div className="space-y-4">
+              <Input
+                label="ป้ายทะเบียน"
+                value={plateText}
+                onChange={(e) => setPlateText(e.target.value)}
+                placeholder="กรอก/แก้ไขป้ายทะเบียน"
+                className={`text-lg font-semibold tracking-wide ${highlightField === 'plate' ? 'ring-2 ring-blue-400' : ''}`}
+              />
+
+              {/* Quick Fix Buttons */}
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1 h-3 bg-rose-400 rounded-full" />
+                    <span className="text-xs font-medium text-slate-400">สับสนบ่อย</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CONFUSION_FIXES.high.map(fix => (
+                      <button
+                        key={`${fix.from}-${fix.to}`}
+                        type="button"
+                        title={fix.tooltip}
+                        onClick={() => applyFix(fix.from, fix.to)}
+                        className="px-2.5 py-1 text-xs font-medium rounded-lg border border-rose-300/40 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20 hover:border-rose-300/60 transition-colors"
+                      >
+                        {fix.from}→{fix.to}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1 h-3 bg-amber-400 rounded-full" />
+                    <span className="text-xs font-medium text-slate-400">อื่นๆ</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CONFUSION_FIXES.medium.map(fix => (
+                      <button
+                        key={`${fix.from}-${fix.to}`}
+                        type="button"
+                        title={fix.tooltip}
+                        onClick={() => applyFix(fix.from, fix.to)}
+                        className="px-2.5 py-1 text-xs font-medium rounded-lg border border-amber-300/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20 hover:border-amber-300/60 transition-colors"
+                      >
+                        {fix.from}→{fix.to}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Province Input */}
+              <Input
+                label="จังหวัด"
+                value={province}
+                onChange={(e) => setProvince(e.target.value)}
+                placeholder="ระบุจังหวัด"
+                className={`text-lg font-semibold ${provinceMissing ? 'border-amber-400/50 bg-amber-500/5' : ''} ${highlightField === 'province' ? 'ring-2 ring-blue-400' : ''}`}
+                hint={provinceMissing ? 'ยังอ่านจังหวัดไม่ได้ - สามารถยืนยันหรือแก้ไขได้' : undefined}
+              />
+
+              {/* Province Quick Select */}
+              <div>
+                <div className="text-xs font-medium text-slate-400 mb-2">จังหวัดยอดนิยม</div>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_PROVINCES.map(prov => (
+                    <button
+                      key={prov.value}
+                      type="button"
+                      onClick={() => { setProvince(prov.value); setHighlightField('province') }}
+                      className="px-3 py-1.5 text-sm font-medium rounded-lg border border-blue-300/30 bg-slate-800/80 text-blue-100 hover:bg-blue-500/20 hover:border-blue-300/60 transition-colors"
+                    >
+                      {prov.icon} {prov.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Note */}
+              <Input
+                label="หมายเหตุ (ถ้ามี)"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="ระบุหมายเหตุเพิ่มเติม"
+              />
+
+              {/* Undo */}
+              {lastChange && (
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>การเปลี่ยนแปลงล่าสุด:</span>
+                  <Badge variant="default" size="sm">
+                    {lastChange.from ? `${lastChange.from}→${lastChange.to}` : 'จัดรูปแบบ'}
+                  </Badge>
+                  <button
+                    onClick={handleUndo}
+                    className="text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    เลิกทำ
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="mt-6 pt-4 border-t border-slate-700/50">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  disabled={busy}
+                  onClick={onConfirm}
+                  className="flex-1"
+                  icon={
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  }
+                >
+                  ยืนยัน
+                  <kbd className="ml-2 px-1.5 py-0.5 text-xs font-mono bg-blue-700/50 rounded">Enter</kbd>
+                </Button>
+                
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => onCorrect(plateText, province, note)}
+                  className="flex-1"
+                  icon={
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z" />
+                    </svg>
+                  }
+                >
+                  บันทึกการแก้ไข
+                  <kbd className="ml-2 px-1.5 py-0.5 text-xs font-mono bg-slate-700 rounded">Ctrl+Enter</kbd>
+                </Button>
+                
+                <Button
+                  variant="secondary"
+                  onClick={handleNormalize}
+                  icon={
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                    </svg>
+                  }
+                >
+                  จัดรูปแบบ
+                </Button>
+
+                <Button
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => setDeleteOpen(true)}
+                  icon={
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  }
+                >
+                  ลบ
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <DeleteConfirmModal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={() => {
+          setDeleteOpen(false)
+          onDelete()
+        }}
+        plate={plateText}
+        province={province}
+        confidence={(item.confidence * 100).toFixed(1) + '%'}
+      />
+
+      <ImageViewer
+        open={viewerOpen}
+        src={viewerSrc}
+        title={viewerTitle}
+        onClose={() => setViewerOpen(false)}
+      />
+    </>
+  )
+}
+
+/* ===== MAIN QUEUE PAGE ===== */
+export default function Queue() {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [busyId, setBusyId] = useState(null)
+  const [toasts, setToasts] = useState([])
+  const [lastRefresh, setLastRefresh] = useState(null)
+
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 3000)
+  }, [])
+
+  const refresh = useCallback(async () => {
+    setError('')
+    setLoading(true)
+    try {
+      const data = await listPending(200)
+      setItems(data)
+      setLastRefresh(new Date())
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const interval = setInterval(refresh, 10000)
+    return () => clearInterval(interval)
+  }, [refresh])
+
+  const handleConfirm = useCallback(async (id) => {
+    setBusyId(id)
+    try {
+      await verifyRead(id, { action: 'confirm', user: 'reviewer' })
+      await refresh()
+      addToast('ยืนยันเรียบร้อยแล้ว', 'success')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }, [refresh, addToast])
+
+  const handleCorrect = useCallback(async (id, corrected_text, corrected_province, note) => {
+    setBusyId(id)
+    try {
+      await verifyRead(id, { action: 'correct', corrected_text, corrected_province, note, user: 'reviewer' })
+      await refresh()
+      addToast('บันทึกการแก้ไขแล้ว', 'success')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }, [refresh, addToast])
+
+  const handleDelete = useCallback(async (id) => {
+    setBusyId(id)
+    try {
+      await deleteRead(id)
+      await refresh()
+      addToast('ลบรายการแล้ว', 'success')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }, [refresh, addToast])
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-5">
+      {/* Header */}
+      <Card className="bg-gradient-to-r from-blue-600/20 via-blue-500/10 to-cyan-500/10">
+        <CardBody>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-100">คิวตรวจสอบ</h1>
+              <p className="text-sm text-slate-300 mt-1">
+                ตรวจผล OCR และยืนยัน/แก้ไขก่อนบันทึกเข้า Master
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                รีเฟรชอัตโนมัติทุก 10 วินาที
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge variant="primary" size="lg">
+                รอการตรวจสอบ {items.length}
+              </Badge>
+              {lastRefresh && (
+                <Badge variant="default" size="sm">
+                  อัปเดต {lastRefresh.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                </Badge>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={refresh}
+                disabled={loading}
+                icon={loading ? <Spinner size="sm" /> : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+              >
+                {loading ? 'กำลังรีเฟรช...' : 'รีเฟรช'}
+              </Button>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Error */}
+      {error && (
+        <Card className="bg-rose-500/10 border-rose-300/40">
+          <CardBody>
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <p className="text-sm text-rose-200">{error}</p>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Items */}
+      {loading && items.length === 0 ? (
+        <Card>
+          <CardBody>
+            <div className="flex items-center justify-center py-12">
+              <Spinner size="lg" className="text-blue-500" />
+              <span className="ml-3 text-slate-300">กำลังโหลดข้อมูล...</span>
+            </div>
+          </CardBody>
+        </Card>
+      ) : items.length === 0 ? (
+        <Card>
+          <CardBody>
+            <EmptyState
+              icon="✓"
+              title="ไม่มีรายการที่รอการตรวจสอบ"
+              description="คิวว่างเปล่า - ทุกรายการได้รับการตรวจสอบแล้ว"
+            />
+          </CardBody>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {items.map(item => (
+            <VerificationItem
+              key={item.id}
+              item={item}
+              busy={busyId === item.id}
+              onConfirm={() => handleConfirm(item.id)}
+              onCorrect={(text, prov, note) => handleCorrect(item.id, text, prov, note)}
+              onDelete={() => handleDelete(item.id)}
+              onToast={addToast}
+            />
+          ))}
+        </div>
+      )}
+
+      <ToastContainer toasts={toasts} />
     </div>
   )
 }
