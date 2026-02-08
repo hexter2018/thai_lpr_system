@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-@import './design-system.css';
+@import '../src/styles/design-system.css';
 
 @layer base {
   :root {
