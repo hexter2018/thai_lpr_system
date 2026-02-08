@@ -40,14 +40,16 @@ _THAI_CONFUSION_MAP = {
     "ป": ("บ",),
     "ด": ("ต",),
     "ต": ("ด",),
-    "ช": ("ซ", "ฃ"),
+    "ช": ("ซ", "ฃ", "ษ", "ศ"),
     "ซ": ("ช",),
     "ฃ": ("ช",),
     "ส": ("ศ", "ษ"),
-    "ศ": ("ส", "ษ"),
-    "ษ": ("ส", "ศ"),
-    "ค": ("ฅ",),
+    "ศ": ("ส", "ษ", "ช"),
+    "ษ": ("ส", "ศ", "ช"),
+    "ค": ("ฅ", "ถ"),
     "ฅ": ("ค",),
+    "ถ": ("ค", "ก"),
+    "ก": ("ถ",),
     "ท": ("ธ",),
     "ธ": ("ท",),
 }
@@ -246,14 +248,24 @@ class PlateOCR:
         up2_adaptive = cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
         up2_otsu = cv2.resize(otsu, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
 
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        lower_green = np.array([35, 40, 40])
+        upper_green = np.array([85, 255, 255])
+        green_mask = cv2.inRange(hsv, lower_green, upper_green)
+        green_inv = cv2.bitwise_not(green_mask)
+
+        up3 = cv2.resize(clahe, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
+
         variants = [
             ("gray", gray),
             ("clahe", clahe),
             ("adaptive", adaptive),
             ("otsu", otsu),
+            ("green_mask", green_inv),
             ("upscale_x2", up2),
             ("upscale_adaptive_x2", up2_adaptive),
             ("upscale_otsu_x2", up2_otsu),
+            ("upscale_x3", up3),
         ]
         if self.variant_names:
             variants = [variant for variant in variants if variant[0] in self.variant_names]
@@ -642,14 +654,18 @@ class PlateOCR:
         consensus_ratio = float(best.get("consensus_ratio") or 0.0)
         margin_ratio = float(best.get("margin_ratio") or 0.0)
 
-        consensus_factor = 0.6 + 0.4 * min(1.0, consensus_ratio)
-        margin_factor = 0.6 + 0.4 * min(1.0, margin_ratio * 2.0)
+        consensus_factor = 0.7 + 0.3 * min(1.0, consensus_ratio)
+        margin_factor = 0.7 + 0.3 * min(1.0, margin_ratio * 2.0)
         confidence = base_conf * consensus_factor * margin_factor
 
         if "low_consensus" in flags:
-            confidence *= 0.75
+            confidence *= 0.85
         if "confusable_chars" in flags:
-            confidence *= 0.9
+            confidence *= 0.95
+
+        from .validate import is_valid_plate
+        if is_valid_plate(best.get("text", "")):
+            confidence *= 1.08
 
         return max(0.0, min(confidence, 0.97))
 

@@ -166,18 +166,26 @@ export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) 
   const [viewer, setViewer] = useState({ open: false, src: '', title: '' })
   const provinceMissing = !p.trim()
 
+  // ✅ UPDATED: เพิ่ม Quick Fix buttons และจัดกลุ่ม
   const commonFixes = useMemo(
     () => [
-      { from: 'ข', to: 'ฆ', label: 'ข→ฆ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ข', to: 'ฆ' }) },
-      { from: 'ฆ', to: 'ข', label: 'ฆ→ข', desc: formatTemplate(copy.quickFixTooltip, { from: 'ฆ', to: 'ข' }) },
-      { from: 'ค', to: 'ฅ', label: 'ค→ฅ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ค', to: 'ฅ' }) },
-      { from: 'ผ', to: 'พ', label: 'ผ→พ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ผ', to: 'พ' }) },
-      { from: 'พ', to: 'ผ', label: 'พ→ผ', desc: formatTemplate(copy.quickFixTooltip, { from: 'พ', to: 'ผ' }) },
-      { from: 'บ', to: 'ป', label: 'บ→ป', desc: formatTemplate(copy.quickFixTooltip, { from: 'บ', to: 'ป' }) },
-      { from: 'ป', to: 'บ', label: 'ป→บ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ป', to: 'บ' }) },
+      { from: 'ข', to: 'ฆ', label: 'ข→ฆ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ข', to: 'ฆ' }), group: 'high' },
+      { from: 'ฆ', to: 'ข', label: 'ฆ→ข', desc: formatTemplate(copy.quickFixTooltip, { from: 'ฆ', to: 'ข' }), group: 'high' },
+      { from: 'ข', to: 'ม', label: 'ข→ม', desc: formatTemplate(copy.quickFixTooltip, { from: 'ข', to: 'ม' }), group: 'high' },
+      { from: 'ม', to: 'ข', label: 'ม→ข', desc: formatTemplate(copy.quickFixTooltip, { from: 'ม', to: 'ข' }), group: 'high' },
+      { from: 'ค', to: 'ฅ', label: 'ค→ฅ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ค', to: 'ฅ' }), group: 'medium' },
+      { from: 'ถ', to: 'ค', label: 'ถ→ค', desc: formatTemplate(copy.quickFixTooltip, { from: 'ถ', to: 'ค' }), group: 'medium' },
+      { from: 'ศ', to: 'ส', label: 'ศ→ส', desc: formatTemplate(copy.quickFixTooltip, { from: 'ศ', to: 'ส' }), group: 'medium' },
+      { from: 'ผ', to: 'พ', label: 'ผ→พ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ผ', to: 'พ' }), group: 'medium' },
+      { from: 'พ', to: 'ผ', label: 'พ→ผ', desc: formatTemplate(copy.quickFixTooltip, { from: 'พ', to: 'ผ' }), group: 'medium' },
+      { from: 'บ', to: 'ป', label: 'บ→ป', desc: formatTemplate(copy.quickFixTooltip, { from: 'บ', to: 'ป' }), group: 'medium' },
+      { from: 'ป', to: 'บ', label: 'ป→บ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ป', to: 'บ' }), group: 'medium' },
     ],
     [copy.quickFixTooltip],
   )
+
+  const highPriorityFixes = commonFixes.filter(f => f.group === 'high')
+  const mediumPriorityFixes = commonFixes.filter(f => f.group === 'medium')
 
   const provinceShortcuts = useMemo(
     () => [
@@ -325,9 +333,41 @@ export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) 
                 <div className="text-base font-semibold text-slate-100">{copy.ocrTitle}</div>
                 <div className="text-xs text-slate-400">{copy.ocrHint}</div>
               </div>
-              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
-                {(r.confidence ?? 0).toFixed(3)}
-              </span>
+              
+              {/* ✅ UPDATED: Visual Confidence Indicator */}
+              <div className="space-y-2">
+                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
+                  {((r.confidence ?? 0) * 100).toFixed(1)}%
+                </span>
+                
+                {/* Progress bar */}
+                <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-500 ${
+                      (r.confidence ?? 0) >= 0.95 ? 'bg-emerald-500' :
+                      (r.confidence ?? 0) >= 0.85 ? 'bg-amber-500' : 
+                      (r.confidence ?? 0) >= 0.60 ? 'bg-orange-500' :
+                      'bg-rose-500'
+                    }`}
+                    style={{ width: `${(r.confidence ?? 0) * 100}%` }}
+                  />
+                </div>
+                
+                {/* Indicators */}
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-rose-400">ต่ำ</span>
+                  <span className="text-amber-400">ปานกลาง</span>
+                  <span className="text-emerald-400">สูง</span>
+                </div>
+                
+                {/* Warning */}
+                {(r.confidence ?? 0) < 0.6 && (
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-rose-500/10 border border-rose-300/30">
+                    <span className="text-rose-400">⚠️</span>
+                    <span className="text-xs text-rose-200">ควรตรวจสอบอย่างละเอียด</span>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="mt-2 text-xs text-slate-500">{copy.shortcutsHint}</div>
           </div>
@@ -344,20 +384,48 @@ export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) 
                 onChange={(e) => setT(e.target.value)}
               />
 
-              <div className="mt-3">
-                <div className="text-xs text-slate-300">{copy.quickFixHeading}</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {commonFixes.map((fix) => (
-                    <button
-                      key={fix.label}
-                      type="button"
-                      title={fix.desc}
-                      className="min-h-[34px] rounded-lg border border-blue-300/30 bg-slate-800/80 px-3 py-1 text-sm text-blue-100 transition hover:border-blue-300/60 hover:bg-blue-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
-                      onClick={() => applyFix(fix.from, fix.to)}
-                    >
-                      {fix.label}
-                    </button>
-                  ))}
+              {/* ✅ UPDATED: Grouped Quick Fix Buttons */}
+              <div className="mt-3 space-y-2">
+                {/* กลุ่มที่ 1: สับสนบ่อยสุด */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-1 h-3 bg-rose-400 rounded-full"></div>
+                    <span className="text-xs text-slate-400 font-medium">สับสนบ่อย</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {highPriorityFixes.map((fix) => (
+                      <button
+                        key={fix.label}
+                        type="button"
+                        title={fix.desc}
+                        className="min-h-[28px] rounded-lg border border-rose-300/40 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 transition hover:bg-rose-500/20 hover:border-rose-300/60"
+                        onClick={() => applyFix(fix.from, fix.to)}
+                      >
+                        {fix.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* กลุ่มที่ 2: อื่นๆ */}
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-1 h-3 bg-amber-400 rounded-full"></div>
+                    <span className="text-xs text-slate-400 font-medium">อื่นๆ</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {mediumPriorityFixes.map((fix) => (
+                      <button
+                        key={fix.label}
+                        type="button"
+                        title={fix.desc}
+                        className="min-h-[28px] rounded-lg border border-amber-300/40 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-100 transition hover:bg-amber-500/20 hover:border-amber-300/60"
+                        onClick={() => applyFix(fix.from, fix.to)}
+                      >
+                        {fix.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </label>

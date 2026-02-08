@@ -17,7 +17,7 @@ export default defineConfig({
       protocol: "ws",
       host: "10.32.70.136",
       port: 5173,
-      clientPort: 5173,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
+      clientPort: 80,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
     },
 
     proxy: {

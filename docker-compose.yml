@@ -28,7 +28,7 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      CORS_ORIGINS: http://localhost:5173,http://10.32.70.136:5173
+      CORS_ORIGINS: http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173
     volumes:
       - ./storage:/storage
       - ./models:/models
