@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getKPI } from '../lib/api.js'
-import { Card, CardBody, CardHeader, StatCard, Spinner, Badge } from '../components/ui/UIComponents.jsx'
+import { Card, CardBody, CardHeader, StatCard, Spinner, Badge } from '../components/UIComponents.jsx'
 
 /* ===== ACCURACY GAUGE ===== */
 function AccuracyGauge({ percentage, size = 'lg' }) {
