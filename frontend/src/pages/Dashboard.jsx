@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { getKPI } from '../lib/api.js'
 
-function StatCard({ title, value, subtitle, trend, icon }) {
+function StatCard({ title, value, subtitle, trend, icon, gradient }) {
   return (
-    <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/20 hover:border-blue-300/30 transition">
+    <div className={`group rounded-2xl border border-slate-700/50 bg-gradient-to-br ${gradient || 'from-slate-900/80 to-slate-900/60'} p-5 shadow-lg hover:border-emerald-300/30 transition-all hover:shadow-emerald-500/10 hover:shadow-xl`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <div className="text-xs uppercase tracking-wide text-slate-400">{title}</div>
+          <div className="text-xs uppercase tracking-wide text-slate-400 group-hover:text-emerald-300 transition">{title}</div>
           <div className="mt-2 flex items-baseline gap-2">
             <div className="text-3xl font-semibold tracking-tight text-slate-100">{value}</div>
             {subtitle && <div className="text-sm text-slate-400">{subtitle}</div>}
@@ -17,7 +17,7 @@ function StatCard({ title, value, subtitle, trend, icon }) {
             </div>
           )}
         </div>
-        {icon && <div className="text-3xl opacity-20">{icon}</div>}
+        {icon && <div className="text-3xl opacity-20 group-hover:opacity-40 transition">{icon}</div>}
       </div>
     </div>
   )
@@ -60,7 +60,9 @@ function AccuracyGauge({ percentage }) {
         />
       </svg>
       <div className="mt-4 text-center">
-        <div className="text-3xl font-bold text-slate-100">{percentage.toFixed(1)}%</div>
+        <div className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
+          {percentage.toFixed(1)}%
+        </div>
         <div className="text-xs text-slate-400">ความแม่นยำ</div>
       </div>
     </div>
@@ -80,7 +82,7 @@ function ConfidenceChart({ high, medium, low }) {
         <span className="font-semibold text-emerald-400">{high}</span>
       </div>
       <div className="h-3 w-full overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full bg-emerald-500" style={{ width: `${highPct}%` }} />
+        <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400" style={{ width: `${highPct}%` }} />
       </div>
 
       <div className="flex items-center justify-between text-sm">
@@ -88,7 +90,7 @@ function ConfidenceChart({ high, medium, low }) {
         <span className="font-semibold text-amber-400">{medium}</span>
       </div>
       <div className="h-3 w-full overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full bg-amber-500" style={{ width: `${medPct}%` }} />
+        <div className="h-full bg-gradient-to-r from-amber-500 to-amber-400" style={{ width: `${medPct}%` }} />
       </div>
 
       <div className="flex items-center justify-between text-sm">
@@ -96,7 +98,7 @@ function ConfidenceChart({ high, medium, low }) {
         <span className="font-semibold text-rose-400">{low}</span>
       </div>
       <div className="h-3 w-full overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full bg-rose-500" style={{ width: `${lowPct}%` }} />
+        <div className="h-full bg-gradient-to-r from-rose-500 to-rose-400" style={{ width: `${lowPct}%` }} />
       </div>
     </div>
   )
@@ -121,7 +123,10 @@ export default function Dashboard() {
   if (!kpi) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-slate-300">กำลังโหลดข้อมูล...</div>
+        <div className="flex items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent"></div>
+          <div className="text-slate-300">กำลังโหลดข้อมูล...</div>
+        </div>
       </div>
     )
   }
@@ -132,8 +137,10 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-blue-300/20 bg-gradient-to-r from-blue-600/20 to-cyan-500/10 p-5">
-        <h1 className="text-2xl font-semibold text-slate-100">Dashboard</h1>
+      <div className="rounded-2xl border border-emerald-300/20 bg-gradient-to-r from-emerald-600/20 via-emerald-500/10 to-teal-500/15 p-5 backdrop-blur">
+        <h1 className="text-2xl font-semibold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
+          Dashboard
+        </h1>
         <p className="text-sm text-slate-300">ภาพรวมระบบตรวจจับป้ายทะเบียน พร้อมสถิติแบบ Real-time</p>
       </div>
 
@@ -142,27 +149,31 @@ export default function Dashboard() {
           title="Total Scans"
           value={kpi.total_reads.toLocaleString()}
           icon="📊"
+          gradient="from-emerald-900/40 to-emerald-900/20"
         />
         <StatCard
           title="Verified"
           value={kpi.verified.toLocaleString()}
           subtitle={`${kpi.total_reads > 0 ? ((kpi.verified / kpi.total_reads) * 100).toFixed(1) : 0}%`}
           icon="✓"
+          gradient="from-teal-900/40 to-teal-900/20"
         />
         <StatCard
           title="Pending Queue"
           value={kpi.pending.toLocaleString()}
           icon="⏳"
+          gradient="from-amber-900/40 to-amber-900/20"
         />
         <StatCard
           title="Master Database"
           value={kpi.master_total.toLocaleString()}
           icon="🗂️"
+          gradient="from-green-900/40 to-green-900/20"
         />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/20">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-900/55 p-5 shadow-lg">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-slate-100">ความแม่นยำระบบ AI</h2>
@@ -172,23 +183,23 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-4">
             <AccuracyGauge percentage={accuracy} />
             <div className="flex flex-col justify-center space-y-3">
-              <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-3">
+              <div className="rounded-xl border border-emerald-300/30 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 p-3">
                 <div className="text-xs text-emerald-300">ALPR (ถูกต้อง)</div>
                 <div className="text-2xl font-bold text-emerald-100">{kpi.alpr_total}</div>
               </div>
-              <div className="rounded-xl border border-rose-300/30 bg-rose-500/10 p-3">
+              <div className="rounded-xl border border-rose-300/30 bg-gradient-to-br from-rose-500/10 to-rose-500/5 p-3">
                 <div className="text-xs text-rose-300">MLPR (แก้ไข)</div>
                 <div className="text-2xl font-bold text-rose-100">{kpi.mlpr_total}</div>
               </div>
-              <div className="rounded-xl border border-blue-300/30 bg-blue-500/10 p-3">
-                <div className="text-xs text-blue-300">Auto-Master</div>
-                <div className="text-2xl font-bold text-blue-100">{kpi.auto_master}</div>
+              <div className="rounded-xl border border-teal-300/30 bg-gradient-to-br from-teal-500/10 to-teal-500/5 p-3">
+                <div className="text-xs text-teal-300">Auto-Master</div>
+                <div className="text-2xl font-bold text-teal-100">{kpi.auto_master}</div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/20">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-900/55 p-5 shadow-lg">
           <h2 className="mb-4 text-lg font-semibold text-slate-100">การกระจายความมั่นใจ (Confidence)</h2>
           <ConfidenceChart
             high={Math.floor(kpi.total_reads * 0.65)}
@@ -199,7 +210,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/20">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-900/55 p-5 shadow-lg">
           <h2 className="mb-3 text-lg font-semibold text-slate-100">สถิติรายวัน</h2>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
@@ -217,7 +228,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/20">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-900/55 p-5 shadow-lg">
           <h2 className="mb-3 text-lg font-semibold text-slate-100">Province Detection</h2>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
@@ -235,7 +246,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-blue-300/20 bg-slate-900/55 p-5 shadow-lg shadow-blue-950/20">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-900/55 p-5 shadow-lg">
           <h2 className="mb-3 text-lg font-semibold text-slate-100">Performance</h2>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
