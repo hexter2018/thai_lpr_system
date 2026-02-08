@@ -23,9 +23,11 @@ function Icon({ type }) {
 export default function AppLayout() {
   return (
     <div className="app-shell min-h-screen">
+      {/* Gradient background */}
       <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute -top-36 left-1/4 h-80 w-80 rounded-full bg-blue-500/20 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="absolute -top-36 left-1/4 h-96 w-96 rounded-full bg-emerald-500/20 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-teal-400/15 blur-3xl" />
+        <div className="absolute top-1/2 left-0 h-72 w-72 rounded-full bg-green-400/10 blur-3xl" />
       </div>
 
       <div className="mx-auto max-w-7xl space-y-4 p-4 lg:space-y-5 lg:p-6">
@@ -33,13 +35,21 @@ export default function AppLayout() {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-blue-500/90 text-white shadow-lg shadow-blue-500/30">TL</div>
+                <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30">
+                  TL
+                </div>
                 <div>
-                  <h1 className="text-lg font-semibold text-slate-100">Thai ALPR</h1>
+                  <h1 className="text-lg font-semibold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
+                    Thai ALPR
+                  </h1>
                   <p className="text-xs text-slate-400">Detection · OCR · Verify · Reports</p>
                 </div>
               </div>
-              <div className="text-xs text-slate-400">Blue-theme operations workspace</div>
+              <div className="hidden sm:block">
+                <div className="rounded-full border border-emerald-300/20 bg-emerald-500/10 px-4 py-1.5">
+                  <span className="text-xs font-medium text-emerald-200">Modern Operations</span>
+                </div>
+              </div>
             </div>
 
             <nav className="top-nav flex flex-wrap items-center gap-2">
