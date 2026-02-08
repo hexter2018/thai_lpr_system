@@ -12,7 +12,7 @@ import {
   Modal,
   EmptyState,
   Spinner 
-} from '../components/ui/UIComponents.jsx'
+} from '../components/UIComponents.jsx'
 
 /* ===== PROVINCES DATA ===== */
 const POPULAR_PROVINCES = [
