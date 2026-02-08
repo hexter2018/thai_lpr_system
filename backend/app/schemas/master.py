@@ -12,6 +12,12 @@ class MasterOut(BaseModel):
     count_seen: int
     editable: bool
 
+class MasterCropOut(BaseModel):
+    read_id: int
+    crop_url: str
+    confidence: float
+    created_at: datetime
+
 class MasterUpsertIn(BaseModel):
     plate_text_norm: str
     display_text: str

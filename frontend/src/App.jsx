@@ -6,6 +6,7 @@ import Upload from './pages/Upload.jsx'
 import Queue from './pages/Queue.jsx'
 import Master from './pages/Master.jsx'
 import Rtsp from './pages/Rtsp.jsx'
+import Reports from './pages/Reports.jsx'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/queue" element={<Queue />} />
         <Route path="/master" element={<Master />} />
         <Route path="/rtsp" element={<Rtsp />} />
+        <Route path="/reports" element={<Reports />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
