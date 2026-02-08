@@ -166,7 +166,6 @@ export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) 
   const [viewer, setViewer] = useState({ open: false, src: '', title: '' })
   const provinceMissing = !p.trim()
 
-  // ✅ UPDATED: เพิ่ม Quick Fix buttons และจัดกลุ่ม
   const commonFixes = useMemo(
     () => [
       { from: 'ข', to: 'ฆ', label: 'ข→ฆ', desc: formatTemplate(copy.quickFixTooltip, { from: 'ข', to: 'ฆ' }), group: 'high' },
@@ -326,203 +325,206 @@ export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) 
           </div>
         </div>
 
-        <div className="flex h-full flex-col" onKeyDown={handleKeyDown} tabIndex={0}>
-          <div className="rounded-2xl border border-blue-300/20 bg-slate-950/70 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-base font-semibold text-slate-100">{copy.ocrTitle}</div>
-                <div className="text-xs text-slate-400">{copy.ocrHint}</div>
-              </div>
-              
-              {/* ✅ UPDATED: Visual Confidence Indicator */}
-              <div className="space-y-2">
-                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
-                  {((r.confidence ?? 0) * 100).toFixed(1)}%
-                </span>
-                
-                {/* Progress bar */}
-                <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full transition-all duration-500 ${
-                      (r.confidence ?? 0) >= 0.95 ? 'bg-emerald-500' :
-                      (r.confidence ?? 0) >= 0.85 ? 'bg-amber-500' : 
-                      (r.confidence ?? 0) >= 0.60 ? 'bg-orange-500' :
-                      'bg-rose-500'
-                    }`}
-                    style={{ width: `${(r.confidence ?? 0) * 100}%` }}
-                  />
+        {/* ✅ Main form with delete button on the side */}
+        <div className="flex gap-3">
+          <div className="flex-1 flex flex-col" onKeyDown={handleKeyDown} tabIndex={0}>
+            <div className="rounded-2xl border border-blue-300/20 bg-slate-950/70 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-base font-semibold text-slate-100">{copy.ocrTitle}</div>
+                  <div className="text-xs text-slate-400">{copy.ocrHint}</div>
                 </div>
                 
-                {/* Indicators */}
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-rose-400">ต่ำ</span>
-                  <span className="text-amber-400">ปานกลาง</span>
-                  <span className="text-emerald-400">สูง</span>
-                </div>
-                
-                {/* Warning */}
-                {(r.confidence ?? 0) < 0.6 && (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-rose-500/10 border border-rose-300/30">
-                    <span className="text-rose-400">⚠️</span>
-                    <span className="text-xs text-rose-200">ควรตรวจสอบอย่างละเอียด</span>
+                <div className="space-y-2">
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass(r.confidence ?? 0)}`}>
+                    {((r.confidence ?? 0) * 100).toFixed(1)}%
+                  </span>
+                  
+                  <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-500 ${
+                        (r.confidence ?? 0) >= 0.95 ? 'bg-emerald-500' :
+                        (r.confidence ?? 0) >= 0.85 ? 'bg-amber-500' : 
+                        (r.confidence ?? 0) >= 0.60 ? 'bg-orange-500' :
+                        'bg-rose-500'
+                      }`}
+                      style={{ width: `${(r.confidence ?? 0) * 100}%` }}
+                    />
                   </div>
-                )}
+                  
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-rose-400">ต่ำ</span>
+                    <span className="text-amber-400">ปานกลาง</span>
+                    <span className="text-emerald-400">สูง</span>
+                  </div>
+                  
+                  {(r.confidence ?? 0) < 0.6 && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-rose-500/10 border border-rose-300/30">
+                      <span className="text-rose-400">⚠️</span>
+                      <span className="text-xs text-rose-200">ควรตรวจสอบอย่างละเอียด</span>
+                    </div>
+                  )}
+                </div>
               </div>
+              <div className="mt-2 text-xs text-slate-500">{copy.shortcutsHint}</div>
             </div>
-            <div className="mt-2 text-xs text-slate-500">{copy.shortcutsHint}</div>
-          </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <label className="text-base font-semibold text-slate-100">
-              {copy.plate}
-              <input
-                className={`input-dark mt-2 text-lg font-semibold tracking-wide md:text-xl ${
-                  highlightField === 'plate' ? 'ring-2 ring-blue-300/60' : ''
-                }`}
-                placeholder={copy.platePlaceholder}
-                value={t}
-                onChange={(e) => setT(e.target.value)}
-              />
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <label className="text-base font-semibold text-slate-100">
+                {copy.plate}
+                <input
+                  className={`input-dark mt-2 text-lg font-semibold tracking-wide md:text-xl ${
+                    highlightField === 'plate' ? 'ring-2 ring-blue-300/60' : ''
+                  }`}
+                  placeholder={copy.platePlaceholder}
+                  value={t}
+                  onChange={(e) => setT(e.target.value)}
+                />
 
-              {/* ✅ UPDATED: Grouped Quick Fix Buttons */}
-              <div className="mt-3 space-y-2">
-                {/* กลุ่มที่ 1: สับสนบ่อยสุด */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <div className="w-1 h-3 bg-rose-400 rounded-full"></div>
-                    <span className="text-xs text-slate-400 font-medium">สับสนบ่อย</span>
+                <div className="mt-3 space-y-2">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-1 h-3 bg-rose-400 rounded-full"></div>
+                      <span className="text-xs text-slate-400 font-medium">สับสนบ่อย</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {highPriorityFixes.map((fix) => (
+                        <button
+                          key={fix.label}
+                          type="button"
+                          title={fix.desc}
+                          className="min-h-[28px] rounded-lg border border-rose-300/40 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 transition hover:bg-rose-500/20 hover:border-rose-300/60"
+                          onClick={() => applyFix(fix.from, fix.to)}
+                        >
+                          {fix.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {highPriorityFixes.map((fix) => (
+
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-1 h-3 bg-amber-400 rounded-full"></div>
+                      <span className="text-xs text-slate-400 font-medium">อื่นๆ</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {mediumPriorityFixes.map((fix) => (
+                        <button
+                          key={fix.label}
+                          type="button"
+                          title={fix.desc}
+                          className="min-h-[28px] rounded-lg border border-amber-300/40 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-100 transition hover:bg-amber-500/20 hover:border-amber-300/60"
+                          onClick={() => applyFix(fix.from, fix.to)}
+                        >
+                          {fix.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </label>
+
+              <label className="text-base font-semibold text-slate-100">
+                {copy.province}
+                <input
+                  className={`input-dark mt-2 text-lg font-semibold md:text-xl ${
+                    provinceMissing ? 'border-amber-300/50 bg-amber-500/10' : ''
+                  } ${highlightField === 'province' ? 'ring-2 ring-blue-300/60' : ''}`}
+                  placeholder={copy.provincePlaceholder}
+                  value={p}
+                  onChange={(e) => setP(e.target.value)}
+                />
+
+                <div className="mt-3">
+                  <div className="text-xs text-slate-300">{copy.provinceHeading}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {provinceShortcuts.map((prov) => (
                       <button
-                        key={fix.label}
+                        key={prov.value}
                         type="button"
-                        title={fix.desc}
-                        className="min-h-[28px] rounded-lg border border-rose-300/40 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-100 transition hover:bg-rose-500/20 hover:border-rose-300/60"
-                        onClick={() => applyFix(fix.from, fix.to)}
+                        title={prov.value}
+                        className="min-h-[34px] rounded-lg border border-blue-300/30 bg-slate-800/80 px-3 py-1 text-sm text-blue-100 transition hover:border-blue-300/60 hover:bg-blue-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
+                        onClick={() => setFieldChange('province', prov.value, prov.value)}
                       >
-                        {fix.label}
+                        {prov.icon} {prov.label}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* กลุ่มที่ 2: อื่นๆ */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <div className="w-1 h-3 bg-amber-400 rounded-full"></div>
-                    <span className="text-xs text-slate-400 font-medium">อื่นๆ</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {mediumPriorityFixes.map((fix) => (
-                      <button
-                        key={fix.label}
-                        type="button"
-                        title={fix.desc}
-                        className="min-h-[28px] rounded-lg border border-amber-300/40 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-100 transition hover:bg-amber-500/20 hover:border-amber-300/60"
-                        onClick={() => applyFix(fix.from, fix.to)}
-                      >
-                        {fix.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </label>
+                {provinceMissing && <div className="mt-2 text-xs text-amber-200">{copy.provinceMissing}</div>}
+              </label>
+            </div>
 
-            <label className="text-base font-semibold text-slate-100">
-              {copy.province}
+            <label className="mt-4 text-base font-semibold text-slate-100">
+              {copy.note}
               <input
-                className={`input-dark mt-2 text-lg font-semibold md:text-xl ${
-                  provinceMissing ? 'border-amber-300/50 bg-amber-500/10' : ''
-                } ${highlightField === 'province' ? 'ring-2 ring-blue-300/60' : ''}`}
-                placeholder={copy.provincePlaceholder}
-                value={p}
-                onChange={(e) => setP(e.target.value)}
+                className="input-dark mt-2 text-lg md:text-xl"
+                placeholder={copy.notePlaceholder}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
               />
-
-              <div className="mt-3">
-                <div className="text-xs text-slate-300">{copy.provinceHeading}</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {provinceShortcuts.map((prov) => (
-                    <button
-                      key={prov.value}
-                      type="button"
-                      title={prov.value}
-                      className="min-h-[34px] rounded-lg border border-blue-300/30 bg-slate-800/80 px-3 py-1 text-sm text-blue-100 transition hover:border-blue-300/60 hover:bg-blue-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
-                      onClick={() => setFieldChange('province', prov.value, prov.value)}
-                    >
-                      {prov.icon} {prov.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {provinceMissing && <div className="mt-2 text-xs text-amber-200">{copy.provinceMissing}</div>}
             </label>
+
+            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+              {lastChange ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-slate-300">{copy.undo}:</span>
+                  <span className="rounded-full border border-blue-300/30 bg-slate-900/70 px-2 py-0.5 text-slate-200">
+                    {lastChange.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    className="rounded-full border border-blue-300/40 px-3 py-1 text-xs text-blue-100 hover:border-blue-300/70"
+                  >
+                    {copy.undo}
+                  </button>
+                </div>
+              ) : (
+                <span className="text-slate-500">{copy.shortcutsHint}</span>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 mt-4 flex flex-col gap-2 rounded-2xl border border-blue-300/20 bg-slate-900/90 p-3 shadow-lg shadow-blue-950/20 sm:flex-row sm:flex-wrap lg:flex-nowrap">
+              <button
+                disabled={busy}
+                onClick={onConfirm}
+                className="btn-blue w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1"
+              >
+                {busy ? copy.loading : `✓ ${copy.confirm}`}
+                <kbd className="ml-2 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => onCorrect(t, p, note)}
+                className="btn-soft w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1"
+              >
+                💾 {copy.saveCorrection}
+                <kbd className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
+              </button>
+              <button
+                type="button"
+                className="btn-soft w-full justify-center whitespace-nowrap sm:w-auto lg:flex-1"
+                onClick={handleNormalize}
+              >
+                🔧 {copy.normalize}
+              </button>
+            </div>
           </div>
 
-          <label className="mt-4 text-base font-semibold text-slate-100">
-            {copy.note}
-            <input
-              className="input-dark mt-2 text-lg md:text-xl"
-              placeholder={copy.notePlaceholder}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-          </label>
-
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-            {lastChange ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-slate-300">{copy.undo}:</span>
-                <span className="rounded-full border border-blue-300/30 bg-slate-900/70 px-2 py-0.5 text-slate-200">
-                  {lastChange.label}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleUndo}
-                  className="rounded-full border border-blue-300/40 px-3 py-1 text-xs text-blue-100 hover:border-blue-300/70"
-                >
-                  {copy.undo}
-                </button>
-              </div>
-            ) : (
-              <span className="text-slate-500">{copy.shortcutsHint}</span>
-            )}
-          </div>
-
-          <div className="sticky bottom-0 mt-4 flex flex-col gap-2 rounded-2xl border border-blue-300/20 bg-slate-900/90 p-3 shadow-lg shadow-blue-950/20 sm:flex-row sm:flex-wrap lg:flex-nowrap">
-            <button
-              disabled={busy}
-              onClick={onConfirm}
-              className="btn-blue w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1"
-            >
-              {busy ? copy.loading : `✓ ${copy.confirm}`}
-              <kbd className="ml-2 rounded bg-blue-700/50 px-1.5 py-0.5 text-xs font-mono">Enter</kbd>
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => onCorrect(t, p, note)}
-              className="btn-soft w-full justify-center whitespace-nowrap disabled:opacity-50 sm:w-auto lg:flex-1"
-            >
-              💾 {copy.saveCorrection}
-              <kbd className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-mono">Ctrl+Enter</kbd>
-            </button>
+          {/* ✅ Delete button on the side */}
+          <div className="flex flex-col justify-start pt-16">
             <button
               type="button"
-              className="btn-soft w-full justify-center whitespace-nowrap sm:w-auto lg:flex-1"
-              onClick={handleNormalize}
-            >
-              🔧 {copy.normalize}
-            </button>
-            <button
-              type="button"
-              className="w-full justify-center whitespace-nowrap rounded-xl border border-rose-300/60 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20 sm:w-auto lg:flex-1"
+              className="rounded-xl border border-rose-300/60 bg-rose-500/10 p-3 text-rose-100 transition hover:bg-rose-500/20 disabled:opacity-50"
               disabled={busy}
               onClick={() => setDeleteOpen(true)}
+              title={copy.delete}
             >
-              🗑️ {copy.delete}
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
             </button>
           </div>
         </div>
