@@ -9,23 +9,24 @@
 
   body {
     @apply bg-slate-950 text-slate-100 antialiased;
-    background-image: radial-gradient(circle at top, rgba(37,99,235,0.2), transparent 50%);
+    background-image: 
+      radial-gradient(circle at top left, rgba(16, 185, 129, 0.15), transparent 50%),
+      radial-gradient(circle at bottom right, rgba(20, 184, 166, 0.12), transparent 50%);
   }
 
   :focus-visible {
     outline: none;
-    @apply ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-950;
+    @apply ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950;
   }
 }
 
 @layer components {
   .glass-panel {
-    @apply rounded-2xl border border-blue-300/20 bg-slate-900/55 shadow-xl shadow-blue-950/20 backdrop-blur;
+    @apply rounded-2xl border border-emerald-300/15 bg-slate-900/60 shadow-xl shadow-emerald-950/20 backdrop-blur;
   }
 
-
   .top-nav {
-    @apply rounded-xl border border-blue-300/15 bg-slate-950/35 p-2;
+    @apply rounded-xl border border-emerald-300/10 bg-slate-950/40 p-2;
   }
 
   .nav-item {
@@ -33,26 +34,26 @@
   }
 
   .nav-item-idle {
-    @apply text-slate-300 hover:bg-slate-800/70 hover:text-white;
+    @apply text-slate-300 hover:bg-emerald-500/10 hover:text-emerald-100;
   }
 
   .nav-item-active {
-    @apply bg-blue-500/25 text-blue-100 shadow-sm shadow-blue-900/30;
+    @apply bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-100 shadow-sm shadow-emerald-900/30;
   }
 
-  .btn-blue {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-400;
+  .btn-emerald, .btn-blue {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white transition hover:from-emerald-400 hover:to-teal-400 shadow-lg shadow-emerald-500/20;
   }
 
   .btn-soft {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-blue-300/25 bg-slate-800/80 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-slate-700;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-300/20 bg-slate-800/80 px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-emerald-500/10 hover:border-emerald-300/40;
   }
 
   .file-input {
-    @apply block w-full rounded-xl border border-blue-300/20 bg-slate-950/60 px-3 py-2 text-sm text-slate-300;
+    @apply block w-full rounded-xl border border-emerald-300/15 bg-slate-950/60 px-3 py-2 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-400;
   }
 
   .input-dark {
-    @apply mt-1 w-full rounded-xl border border-blue-300/25 bg-slate-950/50 px-3 py-2 text-sm text-slate-100;
+    @apply mt-1 w-full rounded-xl border border-emerald-300/20 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400/50 focus:ring-2 focus:ring-emerald-400/20;
   }
 }
