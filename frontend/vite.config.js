@@ -9,15 +9,15 @@ export default defineConfig({
   },
   server: {
     host: true,          // ✅ bind 0.0.0.0 (ให้เครื่องอื่นเข้าถึงได้)
-    port: 80,
+    port: 5173,
     strictPort: true,
 
     // ✅ แก้ HMR websocket ให้ชี้ไป IP ที่เปิดเว็บอยู่จริง
     hmr: {
       protocol: "ws",
       host: "10.32.70.136",
-      port: 80,
-      clientPort: 80,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
+      port: 5173,
+      clientPort: 5173,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
     },
 
     proxy: {
