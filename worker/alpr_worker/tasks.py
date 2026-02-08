@@ -3,6 +3,7 @@ import os
 import time
 import json
 import hashlib
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -17,6 +18,7 @@ from .rtsp_control import should_stop  # worker/rtsp_control.py
 
 from .inference.detector import PlateDetector
 from .inference.ocr import PlateOCR  # ใช้ OCR / parser ที่คุณมีอยู่แล้ว
+from .inference.master_lookup import assist_with_master
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +29,8 @@ log = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/alpr")
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./storage"))
 MASTER_CONF_THRESHOLD = float(os.getenv("MASTER_CONF_THRESHOLD", "0.95"))
+FEEDBACK_EXPORT_LIMIT = int(os.getenv("FEEDBACK_EXPORT_LIMIT", "200"))
+TRAINING_DIR = Path(os.getenv("TRAINING_DIR", str(STORAGE_DIR / "training")))
 
 # RTSP defaults
 DEFAULT_RTSP_FPS = float(os.getenv("RTSP_FPS", "2.0"))
@@ -36,6 +40,7 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "original").mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "crops").mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "debug").mkdir(parents=True, exist_ok=True)
+TRAINING_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ----------------------------
@@ -110,6 +115,12 @@ def process_capture(capture_id: int, image_path: str):
         raw = o.raw or {}
 
         plate_text_norm = norm_plate_text(plate_text)
+
+        assisted = assist_with_master(db, plate_text, province, conf)
+        plate_text = assisted["plate_text"]
+        plate_text_norm = assisted["plate_text_norm"]
+        province = assisted["province"]
+        conf = float(assisted["confidence"])
 
         if conf < 0.6:
             log.warning(
@@ -236,6 +247,7 @@ def process_capture(capture_id: int, image_path: str):
             "plate_text_norm": plate_text_norm,
             "province": province,
             "confidence": conf,
+            "master_assisted": assisted.get("assisted", False),
             "crop_path": str(crop_path),
             "plate_candidates": raw.get("plate_candidates", []),
             "province_candidates": raw.get("province_candidates", []),
@@ -248,6 +260,62 @@ def process_capture(capture_id: int, image_path: str):
     except Exception as e:
         db.rollback()
         return {"ok": False, "error": str(e), "capture_id": capture_id, "image_path": image_path}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="tasks.export_feedback_samples")
+def export_feedback_samples(limit: int = FEEDBACK_EXPORT_LIMIT):
+    """
+    Export MLPR feedback samples into a training manifest.
+    - Copies crop images into TRAINING_DIR/images
+    - Writes TRAINING_DIR/manifest.jsonl
+    - Marks samples as used_in_train=True
+    """
+    images_dir = TRAINING_DIR / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = TRAINING_DIR / "manifest.jsonl"
+
+    db = SessionLocal()
+    try:
+        sql_fetch = text("""
+            SELECT id, crop_path, corrected_text, corrected_province
+            FROM feedback_samples
+            WHERE used_in_train = false
+            ORDER BY created_at ASC
+            LIMIT :limit
+        """)
+        rows = db.execute(sql_fetch, {"limit": int(limit)}).mappings().all()
+        if not rows:
+            return {"ok": True, "exported": 0}
+
+        with manifest_path.open("a", encoding="utf-8") as f:
+            for row in rows:
+                src = Path(row["crop_path"])
+                if not src.exists():
+                    continue
+                dst = images_dir / f"feedback_{row['id']}{src.suffix or '.jpg'}"
+                if not dst.exists():
+                    shutil.copy2(src, dst)
+                record = {
+                    "image": str(dst),
+                    "plate_text": row["corrected_text"],
+                    "province": row["corrected_province"],
+                    "source": "MLPR",
+                }
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        sql_mark = text("""
+            UPDATE feedback_samples
+            SET used_in_train = true
+            WHERE id = ANY(:ids)
+        """)
+        db.execute(sql_mark, {"ids": [int(r["id"]) for r in rows]})
+        db.commit()
+        return {"ok": True, "exported": len(rows), "manifest": str(manifest_path)}
+    except Exception as e:
+        db.rollback()
+        return {"ok": False, "error": str(e)}
     finally:
         db.close()
 
