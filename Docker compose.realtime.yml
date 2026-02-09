@@ -115,44 +115,54 @@ services:
   # Producer สำหรับแต่ละกล้อง
   # Copy section นี้สำหรับกล้องเพิ่มเติม
   
-  rtsp-producer-cam1:
-    build:
-      context: ./worker
-    environment:
-      # Camera settings
-      CAMERA_ID: PCN_Lane4
-      RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
-      
-      # Database & Redis
-      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
-      REDIS_URL: redis://redis:6379/0
-      STORAGE_DIR: /storage
-      
-      # Frame capture settings
-      RTSP_TARGET_FPS: "2.0"
-      RTSP_RECONNECT_SEC: "2.0"
-      
-      # Filtering settings
-      RTSP_ENABLE_MOTION_FILTER: "true"
-      RTSP_MOTION_THRESHOLD: "5.0"
-      
-      RTSP_ENABLE_QUALITY_FILTER: "true"
-      RTSP_MIN_QUALITY_SCORE: "40.0"
-      
-      RTSP_ENABLE_DEDUP: "true"
-      RTSP_DEDUP_CACHE_SIZE: "50"
-      RTSP_DEDUP_THRESHOLD: "5"
-    volumes:
-      - ./storage:/storage
-    command: python -m alpr_worker.rtsp.frame_producer --camera-id plaza2-lane1 --rtsp-url $RTSP_URL --fps 2.0
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - alpr-network
-    restart: unless-stopped
+rtsp-producer-cam1:
+  build:
+    context: ./worker
+  environment:
+    # Camera settings
+    CAMERA_ID: PCN_Lane4
+    RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+    
+    # Database & Redis
+    DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+    REDIS_URL: redis://redis:6379/0
+    STORAGE_DIR: /storage
+    
+    # Frame capture settings
+    RTSP_TARGET_FPS: "2.0"
+    RTSP_RECONNECT_SEC: "2.0"
+    
+    # Filtering settings
+    RTSP_ENABLE_MOTION_FILTER: "true"
+    RTSP_MOTION_THRESHOLD: "5.0"
+    
+    RTSP_ENABLE_QUALITY_FILTER: "true"
+    RTSP_MIN_QUALITY_SCORE: "40.0"
+    
+    RTSP_ENABLE_DEDUP: "true"
+    RTSP_DEDUP_CACHE_SIZE: "50"
+    RTSP_DEDUP_THRESHOLD: "5"
+  volumes:
+    - ./storage:/storage
+  # ✅ แก้ command ให้เป็น array format
+  command:
+    - python
+    - -m
+    - alpr_worker.rtsp.frame_producer
+    - --camera-id
+    - PCN_Lane4
+    - --rtsp-url
+    - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+    - --fps
+    - "2.0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - alpr-network
+  restart: unless-stopped
 
   # ตัวอย่างกล้องที่ 2 (uncomment เพื่อใช้งาน)
   # rtsp-producer-cam2:
