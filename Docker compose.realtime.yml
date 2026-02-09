@@ -118,43 +118,28 @@ services:
 rtsp-producer-cam1:
   build:
     context: ./worker
+    dockerfile: Dockerfile.rtsp
   environment:
-    # Camera settings
+    # ✅ ส่งผ่าน env vars (ไม่ต้องใช้ command args)
     CAMERA_ID: PCN_Lane4
     RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+    RTSP_TARGET_FPS: "2.0"
     
-    # Database & Redis
     DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
     REDIS_URL: redis://redis:6379/0
     STORAGE_DIR: /storage
-    
-    # Frame capture settings
-    RTSP_TARGET_FPS: "2.0"
     RTSP_RECONNECT_SEC: "2.0"
-    
-    # Filtering settings
     RTSP_ENABLE_MOTION_FILTER: "true"
     RTSP_MOTION_THRESHOLD: "5.0"
-    
     RTSP_ENABLE_QUALITY_FILTER: "true"
     RTSP_MIN_QUALITY_SCORE: "40.0"
-    
     RTSP_ENABLE_DEDUP: "true"
     RTSP_DEDUP_CACHE_SIZE: "50"
     RTSP_DEDUP_THRESHOLD: "5"
   volumes:
     - ./storage:/storage
-  # ✅ แก้ command ให้เป็น array format
-  command:
-    - python
-    - -m
-    - alpr_worker.rtsp.frame_producer
-    - --camera-id
-    - PCN_Lane4
-    - --rtsp-url
-    - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
-    - --fps
-    - "2.0"
+  # ✅ Command สั้น - อ่านค่าจาก env
+  command: ["python", "-m", "alpr_worker.rtsp.frame_producer"]
   depends_on:
     postgres:
       condition: service_healthy

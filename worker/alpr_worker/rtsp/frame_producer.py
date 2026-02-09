@@ -332,12 +332,37 @@ class RTSPFrameProducer:
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(description="RTSP Frame Producer for Thai ALPR")
-    parser.add_argument("--camera-id", required=True, help="Camera ID")
-    parser.add_argument("--rtsp-url", required=True, help="RTSP stream URL")
-    parser.add_argument("--fps", type=float, default=2.0, help="Target FPS (default: 2.0)")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    
+    # ✅ ใช้ env vars เป็น default
+    parser.add_argument(
+        "--camera-id",
+        default=os.getenv("CAMERA_ID"),
+        help="Camera ID (default: from CAMERA_ID env var)"
+    )
+    parser.add_argument(
+        "--rtsp-url",
+        default=os.getenv("RTSP_URL"),
+        help="RTSP stream URL (default: from RTSP_URL env var)"
+    )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=float(os.getenv("RTSP_TARGET_FPS", "2.0")),
+        help="Target FPS (default: 2.0 or from RTSP_TARGET_FPS env var)"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging"
+    )
     
     args = parser.parse_args()
+    
+    # ✅ Validate required arguments
+    if not args.camera_id:
+        parser.error("--camera-id is required (or set CAMERA_ID environment variable)")
+    if not args.rtsp_url:
+        parser.error("--rtsp-url is required (or set RTSP_URL environment variable)")
     
     # Setup logging
     logging.basicConfig(
@@ -349,6 +374,12 @@ def main():
     # Create config
     config = RTSPConfig.from_env()
     config.target_fps = args.fps
+    
+    log.info(f"Starting RTSP Frame Producer")
+    log.info(f"Camera ID: {args.camera_id}")
+    log.info(f"RTSP URL: {args.rtsp_url[:50]}...")  # แสดงแค่ 50 ตัวแรก (ไม่เปิดเผย password)
+    log.info(f"Target FPS: {args.fps}")
+    log.info(f"Config: {config}")
     
     # Create and run producer
     producer = RTSPFrameProducer(
