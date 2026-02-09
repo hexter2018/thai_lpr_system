@@ -6,9 +6,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     storage_dir: str = "./storage"
     cors_origins: str  = (
-            "http://localhost:5173",
-            "http://10.32.70.136",
-            "http://10.32.70.136:5173"
+        "http://localhost:5173",
+        "http://10.32.70.136",
+        "http://10.32.70.136:5173"
     )
 
     @property
@@ -22,8 +22,8 @@ class Settings(BaseSettings):
             except json.JSONDecodeError:
                 parsed = origins
         else:
-            if isinstance(origins, list):
-                return [str(item).strip() for item in origins if str(item).strip()]
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
         return [x.strip() for x in origins.split(",") if x.strip()]
 
     class Config:
