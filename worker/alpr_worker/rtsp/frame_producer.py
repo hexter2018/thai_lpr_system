@@ -14,7 +14,7 @@ import signal
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +31,7 @@ from alpr_worker.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
+LOCAL_TZ = timezone(timedelta(hours=7))  # Asia/Bangkok
 
 class RTSPFrameProducer:
     """
@@ -122,7 +123,7 @@ class RTSPFrameProducer:
     def _update_stats(self):
         """Update stats in Redis"""
         try:
-            self.stats["last_update"] = datetime.now(timezone.utc).isoformat()
+            self.stats["last_update"] = datetime.now(LOCAL_TZ).isoformat()
             self.redis.hset(
                 self._stats_key(),
                 mapping={k: str(v) for k, v in self.stats.items()}
@@ -147,7 +148,7 @@ class RTSPFrameProducer:
     
     def _save_frame(self, frame: np.ndarray) -> str:
         """Save frame to disk and return path"""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        timestamp = datetime.now(LOCAL_TZ).strftime("%Y%m%d_%H%M%S_%f")
         filename = f"{timestamp}_{uuid.uuid4().hex[:8]}.jpg"
         filepath = self.rtsp_dir / filename
         
