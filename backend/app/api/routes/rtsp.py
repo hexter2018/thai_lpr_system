@@ -1,3 +1,4 @@
+import subprocess
 from fastapi import APIRouter
 from redis import Redis
 
@@ -17,13 +18,13 @@ def _stop_key(camera_id: str) -> str:
 def rtsp_start(payload: RtspStartIn):
     r = _redis()
     r.delete(_stop_key(payload.camera_id))
-    task = enqueue_rtsp_ingest(
-        payload.camera_id,
-        payload.rtsp_url,
-        payload.fps,
-        payload.reconnect_sec,
-    )
-    return {"ok": True, "task_id": task.id, "camera_id": payload.camera_id}
+    subprocess.Popen([
+        "python", "-m", "alpr_worker.rtsp.frame_producer",
+        "--camera-id", payload.camera_id,
+        "--rtsp-url", payload.rtsp_url,
+        "--fps", str(payload.fps),
+    ])
+    return {"ok": True, "camera_id": payload.camera_id}
 
 @router.post("/rtsp/stop")
 def rtsp_stop(payload: RtspStopIn):
