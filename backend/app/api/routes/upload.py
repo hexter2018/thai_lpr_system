@@ -16,21 +16,21 @@ def resolve_storage_dir() -> Path:
         preferred.mkdir(parents=True, exist_ok=True)
         if os.access(preferred, os.W_OK):
             return preferred
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Storage directory is not writable: {preferred}",
+            )
     except PermissionError:
-        #pass
-
-    #fallback = Path(os.getenv("ALPR_STORAGE_FALLBACK", "/tmp/alpr_storage"))
-    #fallback.mkdir(parents=True, exist_ok=True)
-    #return fallback
         raise HTTPException(
             status_code=500, 
-            detail=f"Storage directory is not writable: {preferred}",
+            detail=f"Storage directory permission denied: {preferred}",
         )
-
-    raise HTTPException(
-        status_code=500, 
-        detail=f"Storage directory could not be created: {preferred}",
-    )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Storage directory could not be created: {preferred}, error: {str(e)}",
+        )
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -41,8 +41,6 @@ def sha256_file(path: Path) -> str:
 
 @router.post("/upload")
 async def upload_one(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    #storage = Path(settings.storage_dir)
-    #storage.mkdir(parents=True, exist_ok=True)
     storage = resolve_storage_dir()
 
     ext = Path(file.filename).suffix.lower() or ".jpg"
@@ -65,8 +63,6 @@ async def upload_one(file: UploadFile = File(...), db: Session = Depends(get_db)
 
 @router.post("/upload/batch")
 async def upload_batch(files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
-    #storage = Path(settings.storage_dir)
-    #storage.mkdir(parents=True, exist_ok=True)
     storage = resolve_storage_dir()
 
     ids = []
