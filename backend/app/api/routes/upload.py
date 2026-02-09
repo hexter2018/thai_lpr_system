@@ -1,6 +1,6 @@
 import os, hashlib, uuid
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -17,11 +17,20 @@ def resolve_storage_dir() -> Path:
         if os.access(preferred, os.W_OK):
             return preferred
     except PermissionError:
-        pass
+        #pass
 
-    fallback = Path(os.getenv("ALPR_STORAGE_FALLBACK", "/tmp/alpr_storage"))
-    fallback.mkdir(parents=True, exist_ok=True)
-    return fallback
+    #fallback = Path(os.getenv("ALPR_STORAGE_FALLBACK", "/tmp/alpr_storage"))
+    #fallback.mkdir(parents=True, exist_ok=True)
+    #return fallback
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Storage directory is not writable: {preferred}",
+        )
+
+    raise HTTPException(
+        status_code=500, 
+        detail=f"Storage directory could not be created: {preferred}",
+    )
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
