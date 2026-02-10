@@ -74,7 +74,7 @@ class RTSPFrameProducer:
         rtsp_url: str,
         config: Optional[RTSPConfig] = None,
         enable_night_enhancement: bool = True,
-        enable_preprocessing: bool = False,
+        enable_preprocessing: bool = True,
     ):
         self.camera_id = camera_id
         self.rtsp_url = rtsp_url
