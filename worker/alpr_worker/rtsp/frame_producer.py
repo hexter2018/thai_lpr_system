@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-RTSP Frame Producer for Thai ALPR System
+RTSP Frame Producer for Thai ALPR System (Enhanced)
 
-อ่าน RTSP stream, filter frames (motion + quality + dedup), 
-แล้วเรียก existing process_capture task ผ่าน Celery
+Features:
+- RTSP stream reading with auto-reconnect
+- Motion detection filter
+- Quality scoring with day/night adaptive thresholds
+- Enhanced quality filter v2 (glare detection, contrast analysis)
+- Image preprocessing (CLAHE, denoising, sharpening)
+- Frame deduplication
+- Celery task enqueue
+
+Night Enhancement:
+- Auto-detects day/night conditions
+- Applies adaptive quality thresholds
+- Optional preprocessing pipeline for low-light frames
 """
 
 import argparse
@@ -16,7 +27,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import cv2
 import numpy as np
@@ -29,17 +40,30 @@ from alpr_worker.rtsp.quality_filter import MotionDetector, QualityScorer, Frame
 from alpr_worker.rtsp.config import RTSPConfig
 from alpr_worker.celery_app import celery_app
 
+# Import night enhancement modules (optional)
+try:
+    from alpr_worker.rtsp.quality_filter_v2 import EnhancedQualityFilter
+    from alpr_worker.rtsp.preprocessing import ImagePreprocessor
+    NIGHT_ENHANCEMENT_AVAILABLE = True
+except ImportError:
+    NIGHT_ENHANCEMENT_AVAILABLE = False
+    EnhancedQualityFilter = None
+    ImagePreprocessor = None
+    logging.warning("Night enhancement modules not available (quality_filter_v2, preprocessing)")
+
 log = logging.getLogger(__name__)
 
 LOCAL_TZ = timezone(timedelta(hours=7))  # Asia/Bangkok
 
+
 class RTSPFrameProducer:
     """
-    RTSP Frame Producer
+    RTSP Frame Producer with Night Enhancement Support
     
     Features:
     - Read RTSP stream with auto-reconnect
     - Filter frames: motion detection, quality check, deduplication
+    - Night-time enhancement (optional)
     - Save frames and enqueue to existing process_capture task
     - Track statistics in Redis
     """
@@ -48,11 +72,17 @@ class RTSPFrameProducer:
         self,
         camera_id: str,
         rtsp_url: str,
-        config: Optional[RTSPConfig] = None
+        config: Optional[RTSPConfig] = None,
+        enable_night_enhancement: bool = True,
+        enable_preprocessing: bool = False,
     ):
         self.camera_id = camera_id
         self.rtsp_url = rtsp_url
         self.config = config or RTSPConfig.from_env()
+        
+        # Night enhancement flags
+        self.enable_night_enhancement = enable_night_enhancement and NIGHT_ENHANCEMENT_AVAILABLE
+        self.enable_preprocessing = enable_preprocessing and NIGHT_ENHANCEMENT_AVAILABLE
         
         # Database
         self.engine = create_engine(self.config.database_url, pool_pre_ping=True)
@@ -66,19 +96,8 @@ class RTSPFrameProducer:
         self.rtsp_dir = self.storage_dir / "rtsp" / camera_id
         self.rtsp_dir.mkdir(parents=True, exist_ok=True)
         
-        # Filters
-        self.motion_detector = MotionDetector(
-            threshold=self.config.motion_threshold
-        ) if self.config.enable_motion_filter else None
-        
-        self.quality_scorer = QualityScorer(
-            min_score=self.config.min_quality_score
-        ) if self.config.enable_quality_filter else None
-        
-        self.deduplicator = FrameDeduplicator(
-            cache_size=self.config.dedup_cache_size,
-            threshold=self.config.dedup_threshold
-        ) if self.config.enable_dedup else None
+        # Setup filters (with night enhancement if available)
+        self._setup_filters()
         
         # Stats
         self.stats = {
@@ -86,7 +105,10 @@ class RTSPFrameProducer:
             "frames_dropped_motion": 0,
             "frames_dropped_quality": 0,
             "frames_dropped_duplicate": 0,
+            "frames_enhanced": 0,
+            "frames_preprocessed": 0,
             "frames_enqueued": 0,
+            "night_mode_active": False,
             "last_update": None,
         }
         
@@ -98,6 +120,46 @@ class RTSPFrameProducer:
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+        
+        # Log configuration
+        log.info(f"RTSP Producer initialized for {camera_id}")
+        log.info(f"Night enhancement: {self.enable_night_enhancement}")
+        log.info(f"Preprocessing: {self.enable_preprocessing}")
+    
+    def _setup_filters(self):
+        """Setup quality filters with optional night enhancement"""
+        
+        # Motion detector (standard)
+        self.motion_detector = MotionDetector(
+            threshold=self.config.motion_threshold
+        ) if self.config.enable_motion_filter else None
+        
+        # Quality filter - choose version
+        if self.enable_night_enhancement and EnhancedQualityFilter:
+            # Use enhanced quality filter v2 with day/night detection
+            self.quality_filter = EnhancedQualityFilter()
+            log.info("Using EnhancedQualityFilter v2 (day/night adaptive)")
+        elif self.config.enable_quality_filter:
+            # Use standard quality scorer
+            self.quality_filter = QualityScorer(
+                min_score=self.config.min_quality_score
+            )
+            log.info("Using standard QualityScorer")
+        else:
+            self.quality_filter = None
+        
+        # Preprocessor (optional)
+        if self.enable_preprocessing and ImagePreprocessor:
+            self.preprocessor = ImagePreprocessor()
+            log.info("Image preprocessing enabled")
+        else:
+            self.preprocessor = None
+        
+        # Deduplicator (standard)
+        self.deduplicator = FrameDeduplicator(
+            cache_size=self.config.dedup_cache_size,
+            threshold=self.config.dedup_threshold
+        ) if self.config.enable_dedup else None
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals"""
@@ -218,31 +280,71 @@ class RTSPFrameProducer:
             queue="default",
         )
     
-    def _process_frame(self, frame: np.ndarray) -> bool:
+    def _process_frame(self, frame: np.ndarray) -> tuple[bool, Optional[np.ndarray], Dict[str, Any]]:
         """
         Process single frame through filters
-        Returns True if frame should be processed, False if dropped
+        
+        Returns:
+            (should_process, enhanced_frame, metadata)
+            - should_process: True if frame should be processed, False if dropped
+            - enhanced_frame: Preprocessed frame (if preprocessing enabled), else None
+            - metadata: Processing metadata (quality score, night mode, etc.)
         """
+        metadata: Dict[str, Any] = {
+            "quality_score": 0.0,
+            "is_night": False,
+            "enhanced": False,
+            "preprocessed": False,
+        }
+        
         # Motion filter
         if self.motion_detector:
             if not self.motion_detector.has_motion(frame):
                 self.stats["frames_dropped_motion"] += 1
-                return False
+                return False, None, metadata
         
-        # Quality filter
-        if self.quality_scorer:
-            score = self.quality_scorer.score(frame)
-            if score < self.config.min_quality_score:
-                self.stats["frames_dropped_quality"] += 1
-                return False
+        # Quality filter with night enhancement
+        if self.quality_filter:
+            if hasattr(self.quality_filter, 'evaluate'):
+                # Enhanced quality filter v2
+                result = self.quality_filter.evaluate(frame)
+                metadata["quality_score"] = result.quality_score
+                metadata["is_night"] = result.is_night
+                self.stats["night_mode_active"] = result.is_night
+                
+                if not result.passed:
+                    self.stats["frames_dropped_quality"] += 1
+                    return False, None, metadata
+                
+                metadata["enhanced"] = True
+                self.stats["frames_enhanced"] += 1
+            else:
+                # Standard quality scorer
+                score = self.quality_filter.score(frame)
+                metadata["quality_score"] = score
+                
+                if score < self.config.min_quality_score:
+                    self.stats["frames_dropped_quality"] += 1
+                    return False, None, metadata
         
-        # Deduplication filter
+        # Deduplication filter (before preprocessing to avoid duplicate processing)
         if self.deduplicator:
             if self.deduplicator.is_duplicate(frame):
                 self.stats["frames_dropped_duplicate"] += 1
-                return False
+                return False, None, metadata
         
-        return True
+        # Image preprocessing (optional, only for night frames)
+        enhanced_frame = None
+        if self.preprocessor and metadata.get("is_night", False):
+            try:
+                enhanced_frame = self.preprocessor.enhance(frame)
+                metadata["preprocessed"] = True
+                self.stats["frames_preprocessed"] += 1
+            except Exception as e:
+                log.warning(f"Preprocessing failed: {e}")
+                enhanced_frame = None
+        
+        return True, enhanced_frame, metadata
     
     def run(self):
         """Main loop"""
@@ -252,8 +354,9 @@ class RTSPFrameProducer:
         log.info(f"Starting RTSP producer for {self.camera_id}")
         log.info(f"Target FPS: {self.config.target_fps}")
         log.info(f"Filters: motion={self.config.enable_motion_filter} "
-                f"quality={self.config.enable_quality_filter} "
-                f"dedup={self.config.enable_dedup}")
+                f"quality={'enhanced_v2' if self.enable_night_enhancement else 'standard'} "
+                f"dedup={self.config.enable_dedup} "
+                f"preprocessing={self.enable_preprocessing}")
         
         while self.running:
             # Check stop flag
@@ -285,12 +388,16 @@ class RTSPFrameProducer:
             self.last_frame_time = now
             
             # Process frame through filters
-            if not self._process_frame(frame):
+            should_process, enhanced_frame, metadata = self._process_frame(frame)
+            if not should_process:
                 continue
+            
+            # Use enhanced frame if available, otherwise original
+            frame_to_save = enhanced_frame if enhanced_frame is not None else frame
             
             # Save frame
             try:
-                image_path = self._save_frame(frame)
+                image_path = self._save_frame(frame_to_save)
                 
                 # Insert capture record
                 capture_id = self._insert_capture(image_path)
@@ -301,9 +408,15 @@ class RTSPFrameProducer:
                 self.stats["frames_enqueued"] += 1
                 
                 if self.stats["frames_enqueued"] % 10 == 0:
-                    log.info(f"Enqueued {self.stats['frames_enqueued']} frames "
-                            f"(read={self.stats['frames_read']}, "
-                            f"dropped={self.stats['frames_dropped_motion'] + self.stats['frames_dropped_quality'] + self.stats['frames_dropped_duplicate']})")
+                    night_status = " [NIGHT]" if metadata.get("is_night") else ""
+                    preproc_status = " [PREPROCESSED]" if metadata.get("preprocessed") else ""
+                    log.info(
+                        f"Enqueued {self.stats['frames_enqueued']} frames{night_status}{preproc_status} "
+                        f"(read={self.stats['frames_read']}, "
+                        f"dropped={self.stats['frames_dropped_motion'] + self.stats['frames_dropped_quality'] + self.stats['frames_dropped_duplicate']}, "
+                        f"enhanced={self.stats['frames_enhanced']}, "
+                        f"preprocessed={self.stats['frames_preprocessed']})"
+                    )
                 
             except Exception as e:
                 log.error(f"Failed to process frame: {e}")
@@ -332,10 +445,28 @@ class RTSPFrameProducer:
 
 def main():
     """CLI entry point"""
-    parser = argparse.ArgumentParser(description="RTSP Frame Producer for Thai ALPR")
+    parser = argparse.ArgumentParser(
+        description="RTSP Frame Producer for Thai ALPR (Enhanced)"
+    )
     parser.add_argument("--camera-id", required=True, help="Camera ID")
     parser.add_argument("--rtsp-url", required=True, help="RTSP stream URL")
     parser.add_argument("--fps", type=float, default=2.0, help="Target FPS (default: 2.0)")
+    parser.add_argument(
+        "--enable-night-enhancement",
+        action="store_true",
+        default=True,
+        help="Enable night-time quality enhancement (default: True)"
+    )
+    parser.add_argument(
+        "--disable-night-enhancement",
+        action="store_true",
+        help="Disable night-time quality enhancement"
+    )
+    parser.add_argument(
+        "--enable-preprocessing",
+        action="store_true",
+        help="Enable image preprocessing for low-light frames"
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
@@ -347,15 +478,27 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     
+    # Check night enhancement availability
+    if not NIGHT_ENHANCEMENT_AVAILABLE:
+        log.warning(
+            "Night enhancement modules not available. "
+            "To enable, ensure quality_filter_v2.py and preprocessing.py are in rtsp/ directory."
+        )
+    
     # Create config
     config = RTSPConfig.from_env()
     config.target_fps = args.fps
+    
+    # Resolve night enhancement flag
+    enable_night = args.enable_night_enhancement and not args.disable_night_enhancement
     
     # Create and run producer
     producer = RTSPFrameProducer(
         camera_id=args.camera_id,
         rtsp_url=args.rtsp_url,
         config=config,
+        enable_night_enhancement=enable_night,
+        enable_preprocessing=args.enable_preprocessing,
     )
     
     try:
