@@ -119,32 +119,42 @@ services:
     build:
       context: ./worker
     environment:
-      # Camera settings
       CAMERA_ID: PCN_Lane4
       RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
-      
-      # Database & Redis
+
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      
-      # Frame capture settings
+
       RTSP_TARGET_FPS: "2.0"
       RTSP_RECONNECT_SEC: "2.0"
-      
-      # Filtering settings
+
       RTSP_ENABLE_MOTION_FILTER: "true"
       RTSP_MOTION_THRESHOLD: "5.0"
-      
+
       RTSP_ENABLE_QUALITY_FILTER: "true"
       RTSP_MIN_QUALITY_SCORE: "40.0"
-      
+
       RTSP_ENABLE_DEDUP: "true"
       RTSP_DEDUP_CACHE_SIZE: "50"
       RTSP_DEDUP_THRESHOLD: "5"
+
+      # ===== Best-shot =====
+      RTSP_ENABLE_BESTSHOT: "true"
+      RTSP_BESTSHOT_COOLDOWN_SEC: "8"
+      RTSP_BESTSHOT_WINDOW_SEC: "2.5"
+      RTSP_BESTSHOT_GAP_SEC: "1.0"
+      RTSP_BESTSHOT_MIN_OCR_CONF: "0.70"
+      RTSP_BESTSHOT_FAST_CONF: "0.95"
+      RTSP_DRAW_BBOX_DEBUG: "true"
+
+      # (optional) night tuning
+      NIGHT_BRIGHTNESS_LEVEL: "80"
+      MIN_QUALITY_SCORE_NIGHT: "34"
+
     volumes:
       - ./storage:/storage
-    # ✅ FIX: ใช้ array form + escape special chars
+      - ./models:/models   # ✅ แนะนำเพิ่ม
     command:
       - python
       - -m
