@@ -142,6 +142,14 @@ services:
       RTSP_ENABLE_DEDUP: "true"
       RTSP_DEDUP_CACHE_SIZE: "50"
       RTSP_DEDUP_THRESHOLD: "5"
+
+            # ===== ROI Zone (ใหม่) =====
+      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_X1: "0.05"     # ตัดขอบซ้าย 5%
+      RTSP_ROI_Y1: "0.15"     # ตัดฟ้า/หลังคา 15%
+      RTSP_ROI_X2: "0.95"     # ตัดขอบขวา 5%
+      RTSP_ROI_Y2: "0.90"     # ตัดพื้นถนนไกล 10%
+      
     volumes:
       - ./storage:/storage
     # ✅ FIX: ใช้ array form + escape special chars

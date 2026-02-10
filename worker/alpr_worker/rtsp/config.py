@@ -39,6 +39,13 @@ class RTSPConfig:
     dedup_cache_size: int = 50
     dedup_threshold: int = 5  # Hamming distance
     
+    # ROI Zone
+    roi_enabled: bool = True
+    roi_x1: float = 0.0
+    roi_y1: float = 0.15
+    roi_x2: float = 1.0
+    roi_y2: float = 0.90
+    
     @classmethod
     def from_env(cls) -> "RTSPConfig":
         """Create config from environment variables"""
@@ -74,6 +81,13 @@ class RTSPConfig:
             enable_dedup=os.getenv("RTSP_ENABLE_DEDUP", "true").lower() == "true",
             dedup_cache_size=int(os.getenv("RTSP_DEDUP_CACHE_SIZE", "50")),
             dedup_threshold=int(os.getenv("RTSP_DEDUP_THRESHOLD", "5")),
+            
+            # ROI Zone
+            roi_enabled=os.getenv("RTSP_ROI_ENABLED", "true").lower() == "true",
+            roi_x1=float(os.getenv("RTSP_ROI_X1", "0.0")),
+            roi_y1=float(os.getenv("RTSP_ROI_Y1", "0.15")),
+            roi_x2=float(os.getenv("RTSP_ROI_X2", "1.0")),
+            roi_y2=float(os.getenv("RTSP_ROI_Y2", "0.90")),
         )
     
     def __str__(self) -> str:
@@ -86,6 +100,7 @@ class RTSPConfig:
   Motion Filter: {self.enable_motion_filter} (threshold={self.motion_threshold}%)
   Quality Filter: {self.enable_quality_filter} (min_score={self.min_quality_score})
   Deduplication: {self.enable_dedup} (cache={self.dedup_cache_size}, threshold={self.dedup_threshold})
+  ROI Zone: {self.roi_enabled} ({self.roi_x1}, {self.roi_y1}) -> ({self.roi_x2}, {self.roi_y2})
 """
 
 

@@ -108,6 +108,8 @@ _DEFAULT_VARIANT_NAMES = (
     "clahe",
     "adaptive",
     "otsu",
+    "deskew",
+    "sharpen",
     "upscale_x2",
     "upscale_adaptive_x2",
     "upscale_otsu_x2",
@@ -270,12 +272,21 @@ class PlateOCR:
 
         up3 = cv2.resize(clahe, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
 
+        # Deskew: แก้ป้ายเอียงจาก perspective ของกล้อง
+        deskewed = self._deskew_plate(gray)
+
+        # Sharpen: เพิ่มขอบตัวอักษรให้ชัดขึ้น
+        _sharpen_kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32)
+        sharpened = cv2.filter2D(clahe, -1, _sharpen_kernel)
+
         variants = [
             ("gray", gray),
             ("clahe", clahe),
             ("adaptive", adaptive),
             ("otsu", otsu),
             ("green_mask", green_inv),
+            ("deskew", deskewed),
+            ("sharpen", sharpened),
             ("upscale_x2", up2),
             ("upscale_adaptive_x2", up2_adaptive),
             ("upscale_otsu_x2", up2_otsu),
