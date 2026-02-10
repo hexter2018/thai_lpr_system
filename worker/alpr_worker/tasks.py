@@ -93,6 +93,7 @@ def norm_plate_text(s: str) -> str:
 
 @celery_app.task(name="tasks.process_capture")
 def process_capture(capture_id: int, image_path: str):
+    log.info("🚀 TASK STARTED: capture_id=%s, image_path=%s", capture_id, image_path)
     img_path = Path(image_path)
 
     if not img_path.exists():

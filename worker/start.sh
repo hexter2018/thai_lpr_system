@@ -50,4 +50,4 @@ PlateOCR()
 print("[worker] preload complete")
 PY
 fi
-celery -A alpr_worker.celery_app:celery_app worker -l info --pool=solo
+celery -A alpr_worker.celery_app:celery_app worker -l info --pool=solo -Q default,celery
