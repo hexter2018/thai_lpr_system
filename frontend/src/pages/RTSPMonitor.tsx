@@ -91,6 +91,11 @@ export default function RTSPMonitor() {
     // backend ควรมี: GET /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url);
+    if (res.status === 404) {
+      setLines([]); // no overlays yet
+      setSelectedLineId(null);
+      return;
+    }
     if (!res.ok) throw new Error(`Load overlays failed: ${res.status}`);
     const data = (await res.json()) as OverlayPayload;
     setLines(data.lines || []);
@@ -123,10 +128,18 @@ export default function RTSPMonitor() {
     // backend ควรมี: WS /ws/cameras/{camera_id}
     const wsUrl = `${WS_BASE}/ws/cameras/${encodeURIComponent(cameraId)}`;
     const ws = new WebSocket(wsUrl);
+    let isActive = true;
 
     ws.onopen = () => console.log("WS connected:", wsUrl);
-    ws.onclose = () => console.log("WS closed");
-    ws.onerror = (e) => console.log("WS error", e);
+    ws.onclose = (evt) => {
+      if (!isActive) return;
+      if (evt.code !== 1000) {
+        console.warn(`WS closed (${evt.code}) for ${cameraId}`);
+      }
+    };
+    ws.onerror = (evt) => {
+      console.warn(`WS error for ${cameraId}`);
+    };
 
     ws.onmessage = (evt) => {
       try {
@@ -139,7 +152,10 @@ export default function RTSPMonitor() {
       }
     };
 
-    return () => ws.close();
+    return () => {
+      isActive = false;
+      ws.close();
+    };
   }, [cameraId]);
 
   // --- Canvas sizing (match image box) ---

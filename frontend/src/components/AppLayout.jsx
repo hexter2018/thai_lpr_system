@@ -7,6 +7,7 @@ const navItems = [
   { to: '/queue', label: 'Verification', icon: 'queue' },
   { to: '/master', label: 'Master', icon: 'db' },
   { to: '/rtsp', label: 'RTSP', icon: 'cam' },
+  { to: "/rstpmonitor", label: "RTSP Monitor", icon: "cam" },
   { to: '/reports', label: 'Reports', icon: 'report' },
 ]
 
