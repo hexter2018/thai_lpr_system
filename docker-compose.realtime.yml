@@ -144,6 +144,11 @@ services:
       RTSP_DEDUP_THRESHOLD: "5"
 
             # ===== Best Shot Buffer (ใหม่) =====
+      # ===== Quality Gate (ใหม่) =====
+      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "25.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "2.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "5.0"
       RTSP_BESTSHOT_ENABLED: "true"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "1.5"
@@ -213,6 +218,10 @@ services:
     ports:
       - "5555:5555"
     environment:
+      # ===== Headlight Deglare (ใหม่) =====
+      DEGLARE_ENABLED: "true"
+      DEGLARE_SATURATION_THRESHOLD: "240"
+      DEGLARE_CLAHE_CLIP: "3.0"
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:

@@ -41,6 +41,8 @@ const WS_BASE = (() => {
     : API_BASE.replace(/^http/, "ws");
 })();
 
+const missingOverlayCameras = new Set<string>();
+
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
 }
@@ -88,11 +90,18 @@ export default function RTSPMonitor() {
 
   // --- API calls: load/save overlays ---
   async function loadOverlays(camId: string) {
+    if (missingOverlayCameras.has(camId)) {
+      setLines([]);
+      setSelectedLineId(null);
+      return;
+    }
+
     // backend ควรมี: GET /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url);
     if (res.status === 404) {
-      setLines([]); // no overlays yet
+      missingOverlayCameras.add(camId);
+      setLines([]);
       setSelectedLineId(null);
       return;
     }
@@ -127,34 +136,38 @@ export default function RTSPMonitor() {
 
     // backend ควรมี: WS /ws/cameras/{camera_id}
     const wsUrl = `${WS_BASE}/ws/cameras/${encodeURIComponent(cameraId)}`;
-    const ws = new WebSocket(wsUrl);
+    let ws: WebSocket | null = null;
     let isActive = true;
 
-    ws.onopen = () => console.log("WS connected:", wsUrl);
-    ws.onclose = (evt) => {
+    const connectTimer = window.setTimeout(() => {
       if (!isActive) return;
-      if (evt.code !== 1000) {
-        console.warn(`WS closed (${evt.code}) for ${cameraId}`);
-      }
-    };
-    ws.onerror = (evt) => {
-      console.warn(`WS error for ${cameraId}`);
-    };
+      
+      ws = new WebSocket(wsUrl);
 
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data) as WsPayload;
-        if (msg?.camera_id === cameraId && Array.isArray(msg.objects)) {
-          setObjects(msg.objects);
+      ws.onopen = () => {
+        // connected
+      };
+      ws.onclose = () => {
+        // keep console quiet when backend WS endpoint is unavailable
+      };
+      ws.onerror = () => {
+        // keep console quiet when backend WS endpoint is unavailable
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data) as WsPayload;
+          if (msg?.camera_id === cameraId && Array.isArray(msg.objects)) {
+            setObjects(msg.objects);
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
-      }
-    };
-
+      };
+    }, 150); // delay to avoid rapid reconnects
     return () => {
       isActive = false;
-      ws.close();
+      window.clearTimeout(connectTimer);
+      ws?.close();
     };
   }, [cameraId]);
 

@@ -38,6 +38,7 @@ from sqlalchemy.orm import sessionmaker
 # Import existing modules
 from alpr_worker.rtsp.quality_filter import MotionDetector, QualityScorer, FrameDeduplicator
 from alpr_worker.rtsp.best_shot import BestShotBuffer, FrameCandidate
+from alpr_worker.rtsp.quality_gate import QualityGate
 from alpr_worker.rtsp.config import RTSPConfig
 from alpr_worker.celery_app import celery_app
 
@@ -111,11 +112,13 @@ class RTSPFrameProducer:
             "frames_enqueued": 0,
             "frames_buffered": 0,
             "frames_discarded_by_bestshot": 0,
+            "frames_rejected_quality_gate": 0,
             "night_mode_active": False,
             "last_update": None,
         }
         
-        # Best Shot Buffer
+        # Quality Gate + Best Shot Buffer
+        self.quality_gate = QualityGate()
         self.best_shot_buffer = BestShotBuffer()
         
         # State
@@ -400,6 +403,16 @@ class RTSPFrameProducer:
             
             # Use enhanced frame if available, otherwise original
             frame_to_save = enhanced_frame if enhanced_frame is not None else frame
+            
+            # Quality Gate: reject junk frames early
+            gate_result = self.quality_gate.check(frame_to_save)
+            if not gate_result.passed:
+                self.stats["frames_dropped_quality"] += 1
+                log.debug("QualityGate rejected: %s (score=%.0f)", gate_result.reject_reason, gate_result.score)
+                continue
+            
+            # Override quality_score with gate score for better best-shot selection
+            metadata["quality_score"] = gate_result.score
             
             # Save frame to disk (needed for buffer)
             try:
