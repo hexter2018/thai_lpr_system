@@ -143,6 +143,12 @@ services:
       RTSP_DEDUP_CACHE_SIZE: "50"
       RTSP_DEDUP_THRESHOLD: "5"
 
+            # ===== Best Shot Buffer (ใหม่) =====
+      RTSP_BESTSHOT_ENABLED: "true"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "1.5"
+      RTSP_BESTSHOT_MIN_FRAMES: "2"
+
             # ===== ROI Zone (ใหม่) =====
       RTSP_ROI_ENABLED: "true"
       RTSP_ROI_X1: "0.05"     # ตัดขอบซ้าย 5%

@@ -37,6 +37,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Import existing modules
 from alpr_worker.rtsp.quality_filter import MotionDetector, QualityScorer, FrameDeduplicator
+from alpr_worker.rtsp.best_shot import BestShotBuffer, FrameCandidate
 from alpr_worker.rtsp.config import RTSPConfig
 from alpr_worker.celery_app import celery_app
 
@@ -108,9 +109,14 @@ class RTSPFrameProducer:
             "frames_enhanced": 0,
             "frames_preprocessed": 0,
             "frames_enqueued": 0,
+            "frames_buffered": 0,
+            "frames_discarded_by_bestshot": 0,
             "night_mode_active": False,
             "last_update": None,
         }
+        
+        # Best Shot Buffer
+        self.best_shot_buffer = BestShotBuffer()
         
         # State
         self.cap: Optional[cv2.VideoCapture] = None
@@ -395,32 +401,28 @@ class RTSPFrameProducer:
             # Use enhanced frame if available, otherwise original
             frame_to_save = enhanced_frame if enhanced_frame is not None else frame
             
-            # Save frame
+            # Save frame to disk (needed for buffer)
             try:
                 image_path = self._save_frame(frame_to_save)
-                
-                # Insert capture record
-                capture_id = self._insert_capture(image_path)
-                
-                # Enqueue for processing (existing task)
-                self._enqueue_processing(capture_id, image_path)
-                
-                self.stats["frames_enqueued"] += 1
-                
-                if self.stats["frames_enqueued"] % 10 == 0:
-                    night_status = " [NIGHT]" if metadata.get("is_night") else ""
-                    preproc_status = " [PREPROCESSED]" if metadata.get("preprocessed") else ""
-                    log.info(
-                        f"Enqueued {self.stats['frames_enqueued']} frames{night_status}{preproc_status} "
-                        f"(read={self.stats['frames_read']}, "
-                        f"dropped={self.stats['frames_dropped_motion'] + self.stats['frames_dropped_quality'] + self.stats['frames_dropped_duplicate']}, "
-                        f"enhanced={self.stats['frames_enhanced']}, "
-                        f"preprocessed={self.stats['frames_preprocessed']})"
-                    )
-                
             except Exception as e:
-                log.error(f"Failed to process frame: {e}")
+                log.error(f"Failed to save frame: {e}")
                 continue
+            
+            # Best Shot Buffer: buffer frame, only enqueue when best is selected
+            candidate = FrameCandidate(
+                image_path=image_path,
+                quality_score=metadata.get("quality_score", 0.0),
+                timestamp=now,
+                metadata=metadata,
+            )
+            selected = self.best_shot_buffer.add(candidate)
+            if selected:
+                self._enqueue_selected(selected)
+            
+            # Best Shot: check gap timeout (no new frames → flush buffer)
+            gap_result = self.best_shot_buffer.check_timeout(now)
+            if gap_result:
+                self._enqueue_selected(gap_result)
             
             # Update stats every 10 frames
             if self.stats["frames_enqueued"] % 10 == 0:
@@ -429,9 +431,32 @@ class RTSPFrameProducer:
         # Cleanup
         self.stop()
     
+    def _enqueue_selected(self, selected: FrameCandidate):
+        """Enqueue the best-shot frame for processing"""
+        try:
+            capture_id = self._insert_capture(selected.image_path)
+            self._enqueue_processing(capture_id, selected.image_path)
+            self.stats["frames_enqueued"] += 1
+            
+            if self.stats["frames_enqueued"] % 5 == 0:
+                night_status = " [NIGHT]" if selected.metadata.get("is_night") else ""
+                buffered = self.best_shot_buffer.buffered_count
+                log.info(
+                    f"BestShot enqueued {self.stats['frames_enqueued']} "
+                    f"(read={self.stats['frames_read']}, "
+                    f"score={selected.quality_score:.1f}{night_status})"
+                )
+        except Exception as e:
+            log.error(f"Failed to enqueue selected frame: {e}")
+
     def stop(self):
         """Stop producer and cleanup"""
         self.running = False
+        
+        # Flush remaining buffer
+        remaining = self.best_shot_buffer.flush_remaining()
+        if remaining:
+            self._enqueue_selected(remaining)
         
         if self.cap is not None:
             self.cap.release()

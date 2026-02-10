@@ -1,106 +1,206 @@
-# worker/alpr_worker/rtsp/best_shot.py
+"""
+Best Shot Buffer — เลือก 1 เฟรมที่ดีที่สุดต่อ 1 "event" (1 คันรถ)
+
+ทำงานโดย:
+1. Buffer เฟรมที่ผ่าน filter ทั้งหมด (เก็บแค่ path + score)
+2. เมื่อตรวจพบ "gap" (ไม่มีเฟรมใหม่เกิน gap_sec) → flush best
+3. หรือเมื่อ buffer เต็ม window → flush best
+4. ส่งแค่เฟรมเดียวที่ดีที่สุดไป process
+
+ใช้ quality_score จาก QualityScorer เป็น proxy
+(ไม่ต้องรัน YOLO/OCR บน producer container)
+
+ENV vars:
+  RTSP_BESTSHOT_WINDOW_SEC   = 3.0   วินาที max ที่จะ buffer
+  RTSP_BESTSHOT_GAP_SEC      = 1.5   วินาทีที่ไม่มีเฟรมใหม่ = จบ event
+  RTSP_BESTSHOT_MIN_FRAMES   = 2     จำนวนเฟรมขั้นต่ำก่อน flush
+  RTSP_BESTSHOT_ENABLED      = true  เปิด/ปิด feature
+"""
+import logging
 import os
 import time
-import cv2
-import numpy as np
-import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, List
 
-def norm_plate_text(s: str) -> str:
-    if not s:
-        return ""
-    s = s.strip().upper()
-    s = s.translate(str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789"))
-    s = re.sub(r"[\s\-\.]", "", s)
-    return s
+log = logging.getLogger(__name__)
 
-def lap_var(bgr: np.ndarray) -> float:
-    g = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    return cv2.Laplacian(g, cv2.CV_64F).var()
 
-class BestShotSelector:
+@dataclass
+class FrameCandidate:
+    """เก็บข้อมูลเฟรมที่ buffer ไว้"""
+    image_path: str          # path ที่ save ไว้แล้ว
+    quality_score: float     # จาก QualityScorer
+    timestamp: float         # time.time()
+    metadata: dict = field(default_factory=dict)
+
+    @property
+    def score(self) -> float:
+        return self.quality_score
+
+
+class BestShotBuffer:
     """
-    เลือก 1 รูปที่ดีที่สุดต่อ 1 ป้าย (1 คัน) ภายใน window เวลา
+    Buffer เฟรมแล้วเลือก best shot ต่อ 1 event (1 คันรถ)
+    
+    Usage:
+        buffer = BestShotBuffer()
+        
+        # ใน loop:
+        candidate = FrameCandidate(path, score, time.time())
+        result = buffer.add(candidate)
+        if result:
+            # result = best FrameCandidate → ส่งไป process
+            enqueue(result.image_path)
+        
+        # เช็ค gap timeout:
+        flushed = buffer.check_timeout()
+        if flushed:
+            enqueue(flushed.image_path)
     """
+    
     def __init__(self):
-        self.window_sec = float(os.getenv("RTSP_BESTSHOT_WINDOW_SEC", "2.5"))
-        self.gap_sec = float(os.getenv("RTSP_BESTSHOT_GAP_SEC", "1.0"))
-        self.min_ocr_conf = float(os.getenv("RTSP_BESTSHOT_MIN_OCR_CONF", "0.70"))
-        self.fast_conf = float(os.getenv("RTSP_BESTSHOT_FAST_CONF", "0.95"))
-
-        self.reset()
-
-    def reset(self):
-        self.key = None
-        self.t0 = 0.0
-        self.t_last = 0.0
-        self.best = None  # dict(score=..., tmp_path=..., meta=...)
-
-    def score(self, ocr_conf: float, det_conf: float, plate_crop_bgr: np.ndarray, frame_q: float, plate_area_ratio: float) -> float:
-        sharp = lap_var(plate_crop_bgr)
-        sharp_norm = min(1.0, sharp / 300.0)  # ปรับตามหน้างานได้
-        q_norm = min(1.0, frame_q / 100.0)
-        area_norm = min(1.0, plate_area_ratio / 0.06)
-
-        # น้ำหนักปรับปรุง: เพิ่ม area (ป้ายใหญ่=อ่านง่าย) + sharpness (คมชัด=OCR แม่น)
-        return (
-            0.45 * ocr_conf
-            + 0.15 * det_conf
-            + 0.18 * sharp_norm
-            + 0.10 * q_norm
-            + 0.12 * area_norm
+        self.window_sec = float(os.getenv("RTSP_BESTSHOT_WINDOW_SEC", "3.0"))
+        self.gap_sec = float(os.getenv("RTSP_BESTSHOT_GAP_SEC", "1.5"))
+        self.min_frames = int(os.getenv("RTSP_BESTSHOT_MIN_FRAMES", "2"))
+        self.enabled = os.getenv("RTSP_BESTSHOT_ENABLED", "true").lower() == "true"
+        
+        self._buffer: List[FrameCandidate] = []
+        self._window_start: float = 0.0
+        self._last_add: float = 0.0
+        
+        log.info(
+            "BestShotBuffer: enabled=%s window=%.1fs gap=%.1fs min_frames=%d",
+            self.enabled, self.window_sec, self.gap_sec, self.min_frames,
         )
-
-    def update(self, now: float, key: str, cand: dict):
+    
+    def add(self, candidate: FrameCandidate) -> Optional[FrameCandidate]:
         """
-        คืนค่า: finalized_candidate หรือ None
+        เพิ่มเฟรมเข้า buffer
+        
+        Returns:
+            FrameCandidate ถ้า window เต็มแล้ว (flush best + เริ่ม window ใหม่)
+            None ถ้ายัง buffer อยู่
         """
-        if not key or cand.get("ocr_conf", 0.0) < self.min_ocr_conf:
+        if not self.enabled:
+            # bypass — ส่งทุกเฟรมเหมือนเดิม
+            return candidate
+        
+        now = candidate.timestamp
+        
+        # ถ้า buffer ว่าง → เริ่ม window ใหม่
+        if not self._buffer:
+            self._buffer.append(candidate)
+            self._window_start = now
+            self._last_add = now
             return None
-
-        if self.key is None:
-            self.key = key
-            self.t0 = now
-            self.t_last = now
-            self.best = cand
-            if cand.get("fast", False):
-                out = self.best
-                self.reset()
-                return out
-            return None
-
-        # คันเดิม
-        if key == self.key:
-            self.t_last = now
-            if self.best is None or cand["score"] > self.best["score"]:
-                self.best = cand
-
-            if cand.get("fast", False):
-                out = self.best
-                self.reset()
-                return out
-
-            if (now - self.t0) >= self.window_sec:
-                out = self.best
-                self.reset()
-                return out
-            return None
-
-        # เปลี่ยนคัน (ป้ายใหม่) -> finalize คันเก่า แล้วเริ่มคันใหม่
-        out = self.best
-        self.reset()
-        self.key = key
-        self.t0 = now
-        self.t_last = now
-        self.best = cand
-        if cand.get("fast", False):
-            out2 = self.best
-            self.reset()
-            return out2
-        return out
-
-    def flush_if_gap(self, now: float):
-        if self.key and (now - self.t_last) >= self.gap_sec:
-            out = self.best
-            self.reset()
-            return out
+        
+        # ถ้าเกิน window → flush best แล้วเริ่มใหม่ด้วย candidate ปัจจุบัน
+        if (now - self._window_start) >= self.window_sec:
+            best = self._flush()
+            # เริ่ม window ใหม่ด้วย candidate ปัจจุบัน
+            self._buffer.append(candidate)
+            self._window_start = now
+            self._last_add = now
+            return best
+        
+        # ยังอยู่ใน window → buffer ต่อ
+        self._buffer.append(candidate)
+        self._last_add = now
         return None
+    
+    def check_timeout(self, now: Optional[float] = None) -> Optional[FrameCandidate]:
+        """
+        เรียกใน loop เพื่อเช็คว่ามี gap timeout หรือไม่
+        (ไม่มีเฟรมใหม่เกิน gap_sec → flush)
+        
+        Returns:
+            FrameCandidate ถ้า timeout แล้ว flush
+            None ถ้ายังไม่ timeout
+        """
+        if not self.enabled or not self._buffer:
+            return None
+        
+        now = now or time.time()
+        if (now - self._last_add) >= self.gap_sec:
+            return self._flush()
+        
+        return None
+    
+    def flush_remaining(self) -> Optional[FrameCandidate]:
+        """Flush remaining buffer (เรียกตอน shutdown)"""
+        if self._buffer:
+            return self._flush()
+        return None
+    
+    def _flush(self) -> Optional[FrameCandidate]:
+        """เลือก best จาก buffer แล้ว clear"""
+        if not self._buffer:
+            return None
+        
+        best = max(self._buffer, key=lambda c: c.score)
+        count = len(self._buffer)
+        
+        # ลบไฟล์ที่ไม่ได้เลือก
+        for c in self._buffer:
+            if c.image_path != best.image_path:
+                try:
+                    Path(c.image_path).unlink(missing_ok=True)
+                except Exception as e:
+                    log.debug("Failed to delete non-best frame %s: %s", c.image_path, e)
+        
+        log.info(
+            "BestShot: selected 1/%d frames (score=%.1f, window=%.1fs)",
+            count, best.score, time.time() - self._window_start,
+        )
+        
+        self._buffer.clear()
+        self._window_start = 0.0
+        self._last_add = 0.0
+        
+        return best
+    
+    @property
+    def buffered_count(self) -> int:
+        return len(self._buffer)
+
+
+# === Self-test ===
+if __name__ == "__main__":
+    import os
+    os.environ["RTSP_BESTSHOT_WINDOW_SEC"] = "2.0"
+    os.environ["RTSP_BESTSHOT_GAP_SEC"] = "0.8"
+    os.environ["RTSP_BESTSHOT_MIN_FRAMES"] = "2"
+    
+    logging.basicConfig(level=logging.INFO)
+    
+    print("BestShotBuffer Self-Test")
+    print("=" * 40)
+    
+    buffer = BestShotBuffer()
+    
+    # Simulate 5 frames in 1 second (same vehicle)
+    t0 = time.time()
+    results = []
+    for i in range(5):
+        score = [40, 55, 70, 85, 60][i]  # frame 4 is best
+        c = FrameCandidate(
+            image_path=f"/tmp/test_{i}.jpg",
+            quality_score=score,
+            timestamp=t0 + i * 0.2,
+        )
+        r = buffer.add(c)
+        if r:
+            results.append(r)
+    
+    # Simulate gap timeout
+    time.sleep(1.0)
+    r = buffer.check_timeout()
+    if r:
+        results.append(r)
+    
+    assert len(results) == 1, f"Expected 1 result, got {len(results)}"
+    assert results[0].quality_score == 85, f"Expected best score 85, got {results[0].quality_score}"
+    print(f"✅ Selected best: score={results[0].quality_score}")
+    
+    print("\n✅ All tests passed!")
