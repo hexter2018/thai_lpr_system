@@ -19,7 +19,7 @@ export default function App() {
         <Route path="/master" element={<Master />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/rtsp" element={<Rtsp />} />
-        <Route path="/rtsp" element={<RTSPMonitor />} />
+        <Route path="/rtspmonitor" element={<RTSPMonitor />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
