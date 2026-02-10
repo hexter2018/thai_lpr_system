@@ -364,6 +364,10 @@ class QualityScorer(EnhancedQualityScorer):
     pass
 
 
+# Alias: frame_producer.py เคยใช้ชื่อนี้
+EnhancedQualityFilter = EnhancedQualityScorer
+
+
 # ===== Convenience Testing Functions =====
 
 def test_enhanced_quality_scorer():

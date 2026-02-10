@@ -42,12 +42,12 @@ from alpr_worker.celery_app import celery_app
 
 # Import night enhancement modules (optional)
 try:
-    from alpr_worker.rtsp.quality_filter_v2 import EnhancedQualityFilter
+    from alpr_worker.rtsp.quality_filter_v2 import EnhancedQualityScorer
     from alpr_worker.rtsp.preprocessing import ImagePreprocessor
     NIGHT_ENHANCEMENT_AVAILABLE = True
 except ImportError:
     NIGHT_ENHANCEMENT_AVAILABLE = False
-    EnhancedQualityFilter = None
+    EnhancedQualityScorer = None
     ImagePreprocessor = None
     logging.warning("Night enhancement modules not available (quality_filter_v2, preprocessing)")
 
@@ -135,9 +135,9 @@ class RTSPFrameProducer:
         ) if self.config.enable_motion_filter else None
         
         # Quality filter - choose version
-        if self.enable_night_enhancement and EnhancedQualityFilter:
+        if self.enable_night_enhancement and EnhancedQualityScorer:
             # Use enhanced quality filter v2 with day/night detection
-            self.quality_filter = EnhancedQualityFilter()
+            self.quality_filter = EnhancedQualityScorer()
             log.info("Using EnhancedQualityFilter v2 (day/night adaptive)")
         elif self.config.enable_quality_filter:
             # Use standard quality scorer
