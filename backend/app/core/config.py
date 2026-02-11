@@ -10,7 +10,6 @@ class Settings(BaseSettings):
         "http://10.32.70.136",
         "http://10.32.70.136:5173"
     )
-
     @property
     def cors_origins_list(self):
         if not self.cors_origins:

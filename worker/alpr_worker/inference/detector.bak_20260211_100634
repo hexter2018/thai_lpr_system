@@ -54,9 +54,6 @@ class PlateDetector:
         if not img_path.exists():
             raise RuntimeError(f"Image not found: {image_path}")
 
-        # Fallback conf: ถ้า detect ไม่เจอที่ conf ปกติ ลองลด conf ลง
-        fallback_conf = max(0.15, self.conf * 0.5)
-
         # Run prediction (works for .engine and .pt)
         results = self.yolo.predict(
             source=str(img_path),
@@ -72,27 +69,6 @@ class PlateDetector:
             raise RuntimeError("No YOLO results returned")
 
         r0 = results[0]
-        if r0.boxes is None or len(r0.boxes) == 0:
-            # FALLBACK: ลอง detect อีกครั้งที่ conf ต่ำลง
-            if fallback_conf < self.conf:
-                results = self.yolo.predict(
-                    source=str(img_path),
-                    imgsz=self.imgsz,
-                    conf=fallback_conf,
-                    iou=self.iou,
-                    classes=[self.class_id],
-                    verbose=False,
-                    device=0,
-                )
-                if results and results[0] is not None:
-                    r0 = results[0]
-                    if r0.boxes is not None and len(r0.boxes) > 0:
-                        import logging
-                        logging.getLogger(__name__).info(
-                            "FALLBACK detection succeeded at conf=%.2f (primary=%.2f)",
-                            fallback_conf, self.conf
-                        )
-
         if r0.boxes is None or len(r0.boxes) == 0:
             raise RuntimeError("No plate detected")
 

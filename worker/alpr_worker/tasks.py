@@ -17,6 +17,25 @@ from .celery_app import celery_app
 from .rtsp_control import should_stop  # worker/rtsp_control.py
 
 from .inference.detector import PlateDetector
+
+# --- Headlight Deglare (ลด glare จากไฟหน้ารถกลางคืน) ---
+try:
+    from .rtsp.deglare import HeadlightDeglare
+    _deglare: Optional[HeadlightDeglare] = None
+    DEGLARE_AVAILABLE = True
+except ImportError:
+    DEGLARE_AVAILABLE = False
+    _deglare = None
+    log.warning("HeadlightDeglare not available (deglare.py not found)")
+
+
+def get_deglare() -> Optional["HeadlightDeglare"]:
+    global _deglare
+    if not DEGLARE_AVAILABLE:
+        return None
+    if _deglare is None:
+        _deglare = HeadlightDeglare()
+    return _deglare
 from .inference.ocr import PlateOCR  # ใช้ OCR / parser ที่คุณมีอยู่แล้ว
 from .inference.master_lookup import assist_with_master
 
@@ -104,9 +123,54 @@ def process_capture(capture_id: int, image_path: str):
 
     db = SessionLocal()
     try:
-        # 1) detect + crop
-        det = detector.detect_and_crop(str(img_path))
-        crop_path = det.crop_path
+        # 1) detect + crop (with optional deglare preprocessing)
+        det = None
+        crop_path = None
+        
+        # Try deglare preprocessing first (helps with nighttime headlight glare)
+        deglare = get_deglare()
+        if deglare:
+            try:
+                import cv2 as _cv2
+                frame = _cv2.imread(str(img_path))
+                if frame is not None:
+                    processed, original = deglare.process_for_detection(frame)
+                    
+                    if original is not None:
+                        # Deglare changed the image — try processed version first
+                        deglared_path = str(img_path) + ".deglared.jpg"
+                        _cv2.imwrite(deglared_path, processed)
+                        try:
+                            det = detector.detect_and_crop(deglared_path)
+                            crop_path = det.crop_path
+                            log.info("✅ Deglare helped: plate detected after preprocessing")
+                        except RuntimeError:
+                            # Deglared version failed, try original
+                            try:
+                                det = detector.detect_and_crop(str(img_path))
+                                crop_path = det.crop_path
+                            except RuntimeError:
+                                pass  # Both failed
+                        finally:
+                            # Cleanup temp file
+                            try:
+                                Path(deglared_path).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                    else:
+                        # No deglare needed (no significant glare)
+                        det = detector.detect_and_crop(str(img_path))
+                        crop_path = det.crop_path
+            except RuntimeError:
+                # Deglare path failed completely, will be caught below
+                pass
+            except Exception as e:
+                log.warning("Deglare preprocessing error: %s", e)
+        
+        # Fallback: try without deglare
+        if det is None:
+            det = detector.detect_and_crop(str(img_path))
+            crop_path = det.crop_path
 
         # 2) OCR
         o = ocr.read_plate(crop_path, debug_dir=STORAGE_DIR / "debug", debug_id=str(capture_id))
