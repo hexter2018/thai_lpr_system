@@ -268,6 +268,7 @@ class PlateOCR:
         )
 
     def _build_variants(self, image: np.ndarray) -> List[Tuple[str, np.ndarray]]:
+        h, w = image.shape[:2]
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         clahe = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(8, 8)).apply(gray)
         adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 3)
