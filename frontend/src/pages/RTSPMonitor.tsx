@@ -33,15 +33,15 @@ type WsPayload = {
 };
 
 const API_BASE = (import.meta as any).env.VITE_API_BASE?.replace(/\/$/, "") || "";
-const WS_BASE = (() => {
-  // แปลง http(s) -> ws(s)
-  if (!API_BASE) return "";
-  return API_BASE.startsWith("https")
-    ? API_BASE.replace(/^https/, "wss")
-    : API_BASE.replace(/^http/, "ws");
-})();
+const WS_BASE = ((import.meta as any).env.VITE_WS_BASE || "").replace(/\/$/, "");
+const OVERLAYS_STORAGE_PREFIX = "rtsp-overlays";
+const ENABLE_MJPEG_STREAM = ((import.meta as any).env.VITE_ENABLE_MJPEG_STREAM || "").toLowerCase() === "true";
+const ENABLE_OVERLAY_API = ((import.meta as any).env.VITE_ENABLE_OVERLAY_API || "").toLowerCase() === "true";
+const overlayAvailability = new Map<string, "UNKNOWN" | "LOADING" | "MISSING" | "AVAILABLE">();
 
-const missingOverlayCameras = new Set<string>();
+function overlaysStorageKey(cameraId: string) {
+  return `${OVERLAYS_STORAGE_PREFIX}:${cameraId}`;
+}
 
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
@@ -64,8 +64,10 @@ export default function RTSPMonitor() {
   // --- Stream URL (MJPEG) ---
   const mjpegUrl = useMemo(() => {
     // backend ควรมี: GET /api/streams/{camera_id}/mjpeg
-    return `${API_BASE}/api/streams/${encodeURIComponent(cameraId)}/mjpeg`;
-  }, [cameraId]);
+    if (!ENABLE_MJPEG_STREAM || !API_BASE || streamLoadFailed) return "";
+    const base = `${API_BASE}/api/streams/${encodeURIComponent(cameraId)}/mjpeg`;
+    return `${base}?attempt=${streamAttempt}`;
+  }, [cameraId, streamAttempt, streamLoadFailed]);
 
   // --- Refs for sizing & drawing ---
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -87,31 +89,69 @@ export default function RTSPMonitor() {
   const [showBoxes, setShowBoxes] = useState(true);
   const [showIds, setShowIds] = useState(true);
   const [showSpeed, setShowSpeed] = useState(true);
+  const [streamLoadFailed, setStreamLoadFailed] = useState(false);
+  const [streamAttempt, setStreamAttempt] = useState(0);
+
+  useEffect(() => {
+    setStreamLoadFailed(false);
+    setStreamAttempt(0);
+  }, [cameraId]);
 
   // --- API calls: load/save overlays ---
   async function loadOverlays(camId: string) {
-    if (missingOverlayCameras.has(camId)) {
+    const fallbackJson = localStorage.getItem(overlaysStorageKey(camId));
+    if (fallbackJson) {
+      try {
+        const localData = JSON.parse(fallbackJson) as OverlayPayload;
+        setLines(localData.lines || []);
+        setSelectedLineId(null);
+        return;
+      } catch {
+        localStorage.removeItem(overlaysStorageKey(camId));
+      }
+    }
+
+    const status = overlayAvailability.get(camId);
+    if (status === "MISSING" || status === "LOADING") {
       setLines([]);
       setSelectedLineId(null);
       return;
     }
 
+    if (!API_BASE || !ENABLE_OVERLAY_API) {
+      setLines([]);
+      setSelectedLineId(null);
+      return;
+    }
+
+    overlayAvailability.set(camId, "LOADING");
     // backend ควรมี: GET /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url);
     if (res.status === 404) {
-      missingOverlayCameras.add(camId);
+      overlayAvailability.set(camId, "MISSING");
       setLines([]);
       setSelectedLineId(null);
       return;
     }
-    if (!res.ok) throw new Error(`Load overlays failed: ${res.status}`);
+    if (!res.ok) {
+      overlayAvailability.set(camId, "UNKNOWN");
+      throw new Error(`Load overlays failed: ${res.status}`);
+    }
+    overlayAvailability.set(camId, "AVAILABLE");
     const data = (await res.json()) as OverlayPayload;
     setLines(data.lines || []);
     setSelectedLineId(null);
   }
 
   async function saveOverlays(camId: string, payloadLines: VirtualLine[]) {
+    localStorage.setItem(
+      overlaysStorageKey(camId),
+      JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
+    );
+
+    if (!API_BASE || !ENABLE_OVERLAY_API) return;
+
     // backend ควรมี: PUT /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url, {
@@ -119,7 +159,12 @@ export default function RTSPMonitor() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
     });
+    if (res.status === 404) {
+      overlayAvailability.set(camId, "MISSING");
+      return;
+    }
     if (!res.ok) throw new Error(`Save overlays failed: ${res.status}`);
+    overlayAvailability.set(camId, "AVAILABLE");
   }
 
   // load overlays when camera changes
@@ -132,7 +177,10 @@ export default function RTSPMonitor() {
 
   // --- WebSocket for boxes/ids ---
   useEffect(() => {
-    if (!WS_BASE) return;
+    if (!WS_BASE) {
+      setObjects([]);
+      return;
+    }
 
     // backend ควรมี: WS /ws/cameras/{camera_id}
     const wsUrl = `${WS_BASE}/ws/cameras/${encodeURIComponent(cameraId)}`;
@@ -443,13 +491,49 @@ export default function RTSPMonitor() {
         </div>
 
         <div style={{ position: "relative" }}>
-          <img
-            ref={imgRef}
-            src={mjpegUrl}
-            alt="rtsp"
-            onLoad={onImgLoad}
-            style={{ width: "100%", display: "block" }}
-          />
+          {mjpegUrl ? (
+            <img
+              ref={imgRef}
+              src={mjpegUrl}
+              alt="rtsp"
+              onLoad={onImgLoad}
+              onError={() => setStreamLoadFailed(true)}
+              style={{ width: "100%", display: "block" }}
+            />
+          ) : (
+            <div
+              style={{
+                minHeight: 360,
+                display: "grid",
+                placeItems: "center",
+                color: "#bbb",
+                fontSize: 14,
+                padding: 16,
+                textAlign: "center",
+              }}
+            >
+              {streamLoadFailed ? (
+                <>
+                  Stream not ready for camera <code>{cameraId}</code>. Start RTSP producer first, then click
+                  {" "}<button
+                    onClick={() => {
+                      setStreamLoadFailed(false);
+                      setStreamAttempt((v) => v + 1);
+                    }}
+                    style={{ marginLeft: 6, padding: "4px 8px", borderRadius: 6, border: "1px solid #555", background: "#222", color: "#fff" }}
+                  >
+                    Retry
+                  </button>
+                  .
+                </>
+              ) : (
+                <>
+                  MJPEG stream is disabled. Set <code>VITE_ENABLE_MJPEG_STREAM=true</code> when backend supports
+                  <code> /api/streams/{'{camera_id}'}/mjpeg</code>.
+                </>
+              )}
+            </div>
+          )}
 
           <canvas
             ref={canvasRef}
