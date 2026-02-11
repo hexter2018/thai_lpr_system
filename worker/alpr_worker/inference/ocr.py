@@ -419,6 +419,9 @@ class PlateOCR:
 
         for line in lines:
             text = "".join(tok["text"] for tok in line)
+            # Skip "THAILAND XX" header lines (ป้ายเหลือง/น้ำเงิน)
+            if re.search(r"(?i)THAILAND", text):
+                continue
             normalized = self._normalize_plate(text)
             if not normalized:
                 continue
@@ -630,24 +633,53 @@ class PlateOCR:
         return {"texts": texts}
 
     def _plate_format_adjustment(self, text: str) -> float:
-        if re.match(r"^\d[ก-ฮ]{1,2}\d{1,4}$", text):
-            return 0.08
-        if re.match(r"^[ก-ฮ]{2}\d{1,4}$", text):
-            return 0.08
-        if re.match(r"^[ก-ฮ]{1,2}\d{1,4}$", text):
-            return 0.02
+        # Standard Thai plates (with Thai characters)
+        if re.match(r"^\\d[ก-ฮ]{2}\\d{1,4}$", text):
+            return 0.08  # 1กก1234, 1ฆข1234 (taxi)
+        if re.match(r"^[ก-ฮ]{2}\\d{1,4}$", text):
+            return 0.08  # กก1234
+        if re.match(r"^[ก-ฮ]{1,2}\\d{1,4}$", text):
+            return 0.02  # ก1234 (motorcycle)
+        if re.match(r"^\\d[ก-ฮ]\\d{1,4}$", text):
+            return 0.02  # 1ก1234 (motorcycle variant)
+        # Pure numeric plates (commercial/government: 32-0394, 65-0282, 36-1777)
+        if re.match(r"^\\d{5,6}$", text):
+            return 0.06
+        # Thai char + long digits (truck: ท991234 = ท.99-1234)
+        if re.match(r"^[ก-ฮ]\\d{5,6}$", text):
+            return 0.06
         return -0.08
 
     def _format_plate_display(self, text: str) -> str:
         text = text or ""
-        match = re.match(r"^(\d)([ก-ฮ]{1,2})(\d{1,4})$", text)
+        # digit prefix + 2 Thai chars + digits → "1กก 1234" / "1ฆข 1234" (taxi)
+        match = re.match(r"^(\\d{1,2})([ก-ฮ]{2})(\\d{1,4})$", text)
         if match:
-            digit, prefix, digits = match.groups()
-            return f"{digit}{prefix} {digits}"
-        match = re.match(r"^([ก-ฮ]{1,2})(\d{1,4})$", text)
+            return f"{match.group(1)}{match.group(2)} {match.group(3)}"
+        # digit prefix + 1 Thai char + digits → "1ก 1234" (motorcycle)
+        match = re.match(r"^(\\d)([ ก-ฮ])(\\d{1,4})$", text)
         if match:
-            prefix, digits = match.groups()
-            return f"{prefix} {digits}"
+            return f"{match.group(1)}{match.group(2)} {match.group(3)}"
+        # 2 Thai chars + digits → "กก 1234"
+        match = re.match(r"^([ก-ฮ]{2})(\\d{1,4})$", text)
+        if match:
+            return f"{match.group(1)} {match.group(2)}"
+        # 1 Thai char + digits → "ก 1234"
+        match = re.match(r"^([ก-ฮ])(\\d{1,4})$", text)
+        if match:
+            return f"{match.group(1)} {match.group(2)}"
+        # pure numeric 6 digits → "32-0394" (NN-NNNN commercial/government)
+        match = re.match(r"^(\\d{2})(\\d{4})$", text)
+        if match:
+            return f"{match.group(1)}-{match.group(2)}"
+        # pure numeric 5 digits → "36-177"
+        match = re.match(r"^(\\d{2})(\\d{3})$", text)
+        if match:
+            return f"{match.group(1)}-{match.group(2)}"
+        # Thai char + digits → truck "ท.99-1234"
+        match = re.match(r"^([ก-ฮ])(\\d{1,2})(\\d{3,4})$", text)
+        if match:
+            return f"{match.group(1)}.{match.group(2)}-{match.group(3)}"
         return text
 
     def _province_candidates_from_lines(self, line_texts: List[str]) -> List[Dict[str, Any]]:
@@ -887,6 +919,9 @@ class PlateOCR:
             x = float(np.mean([pt[0] for pt in box]))
             tokens.append({"text": cleaned, "conf": float(conf or 0.0), "x": x, "y": y})
 
+        # Filter out "THAILAND" header tokens (ป้ายเหลือง/น้ำเงิน)
+        tokens = [t for t in tokens if not re.search(r"(?i)THAILAND", t.get("text", ""))]
+
         if not tokens:
             return [], []
 
@@ -913,13 +948,19 @@ class PlateOCR:
 
     def _normalize_text(self, text: str) -> str:
         norm = (text or "").translate(_THAI_DIGIT_MAP)
-        norm = re.sub(r"[\s\-_.]", "", norm)
+        norm = re.sub(r"[\\s\\-_.]", "", norm)
         norm = re.sub(r"[^0-9A-Za-zก-๙]", "", norm)
+        # Filter out "THAILAND" header (ป้ายเหลือง/น้ำเงินมี "THAILAND 01" ด้านบน)
+        if re.search(r"(?i)THAILAND", norm):
+            norm = re.sub(r"(?i)THAILAND\\d*", "", norm)
         return norm
 
     def _normalize_plate(self, text: str) -> str:
         norm = self._normalize_text(text)
-        norm = re.sub(r"[^0-9ก-๙]", "", norm)
+        # ลบ English letters แต่เก็บ Thai chars + digits
+        # (pure numeric plates เช่น 32-0394 ต้องเก็บตัวเลขไว้)
+        norm = re.sub(r"[A-Za-z]", "", norm)
+        norm = re.sub(r"[^0-9ก-ฮ]", "", norm)
         return norm
 
     def _expand_confusion_candidates(self, text: str) -> Iterable[Tuple[str, int, float]]:

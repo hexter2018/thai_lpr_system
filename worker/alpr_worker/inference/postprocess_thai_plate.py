@@ -12,36 +12,31 @@ log = logging.getLogger(__name__)
 
 _THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 _PLATE_CLEAN_RE = re.compile(r"[^0-9ก-ฮ]")
+
+# === Updated plate patterns — รองรับทุกรูปแบบ ===
 _PLATE_PATTERNS = [
-    re.compile(r"^\d[ก-ฮ]{2}\d{3,4}$"),
-    re.compile(r"^[ก-ฮ]{2}\d{3,4}$"),
+    # ป้ายมีตัวอักษรไทย (Standard / Taxi / Personal)
+    re.compile(r"^\d[ก-ฮ]{2}\d{3,4}$"),      # 1กก1234, 1ฆข1234 (taxi!)
+    re.compile(r"^[ก-ฮ]{2}\d{3,4}$"),         # กก1234
+    re.compile(r"^[ก-ฮ]{1}\d{1,4}$"),         # ก1234 (motorcycle)
+    re.compile(r"^\d[ก-ฮ]{1}\d{1,4}$"),       # 1ก1234 (motorcycle variant)
+    re.compile(r"^\d{2}[ก-ฮ]{1,2}\d{1,4}$"),  # 12กก1234
+
+    # ป้ายตัวเลขล้วน (Commercial/Taxi/Truck/Government)
+    re.compile(r"^\d{2}\d{4}$"),               # 320394 (= 32-0394)
+    re.compile(r"^\d{2}\d{3}$"),               # 36177 (= 36-177)
+
+    # ป้ายรถบรรทุก (Thai char + digits: ท991234 = ท.99-1234)
+    re.compile(r"^[ก-ฮ]\d{5,6}$"),
 ]
 
 _CONFUSABLE_PAIRS = {
-    ("ข", "ฆ"),
-    ("ฆ", "ข"),
-    ("ข", "ม"),
-    ("ม", "ข"),
-    ("ฆ", "ม"),
-    ("ม", "ฆ"),
-    ("ผ", "ฆ"),
-    ("ฆ", "ผ"),
-    ("ร", "ธ"),
-    ("ธ", "ร"),
-    ("น", "ม"),
-    ("ม", "น"),
-    ("ฌ", "ณ"),
-    ("ณ", "ฌ"),
-    ("ต", "ด"),
-    ("ด", "ต"),
-    ("ถ", "ก"),
-    ("ก", "ถ"),
-    ("ถ", "ค"),
-    ("ค", "ถ"),
-    ("ฎ", "ภ"),
-    ("ภ", "ฎ"),
-    ("ช", "ษ"),
-    ("ษ", "ช"),
+    ("ข", "ฆ"), ("ฆ", "ข"), ("ข", "ม"), ("ม", "ข"),
+    ("ฆ", "ม"), ("ม", "ฆ"), ("ผ", "ฆ"), ("ฆ", "ผ"),
+    ("ร", "ธ"), ("ธ", "ร"), ("น", "ม"), ("ม", "น"),
+    ("ฌ", "ณ"), ("ณ", "ฌ"), ("ต", "ด"), ("ด", "ต"),
+    ("ถ", "ก"), ("ก", "ถ"), ("ถ", "ค"), ("ค", "ถ"),
+    ("ฎ", "ภ"), ("ภ", "ฎ"), ("ช", "ษ"), ("ษ", "ช"),
 }
 
 
@@ -74,8 +69,19 @@ def plate_pattern_match(text: str) -> bool:
     return any(pattern.match(normalized) for pattern in _PLATE_PATTERNS)
 
 
+def is_pure_numeric_plate(text: str) -> bool:
+    """ตรวจว่าเป็นป้ายตัวเลขล้วน (commercial/taxi/government)"""
+    normalized = normalize_plate_text(text)
+    return bool(re.match(r"^\d{5,6}$", normalized))
+
+
 def plate_pattern_bonus(text: str) -> float:
-    return 0.18 if plate_pattern_match(text) else -0.55
+    if plate_pattern_match(text):
+        # Pure numeric plates get slightly lower bonus
+        if is_pure_numeric_plate(text):
+            return 0.12
+        return 0.18
+    return -0.55
 
 
 def confusion_aware_distance(a: str, b: str) -> float:
@@ -159,7 +165,8 @@ def rerank_plate_candidates(
             count_ratio = float(cand.get("count", 0)) / variant_count
             score_ratio = float(cand.get("score", 0.0)) / max_score
             base_score = (0.45 * avg_conf) + (consensus_weight * consensus_ratio) + (0.2 * count_ratio)
-            final = base_score + (0.15 * score_ratio) + (pattern_weight * (1.0 if plate_pattern_match(text) else -1.0))
+            pattern_matched = plate_pattern_match(text)
+            final = base_score + (0.15 * score_ratio) + (pattern_weight * (1.0 if pattern_matched else -1.0))
             final += _confusable_bonus(text, peers)
             scored.append({
                 "text": text,
@@ -168,7 +175,7 @@ def rerank_plate_candidates(
                 "count": int(cand.get("count", 0)),
                 "score": float(cand.get("score", 0.0)),
                 "final_score": float(final),
-                "pattern_match": plate_pattern_match(text),
+                "pattern_match": pattern_matched,
             })
         scored.sort(key=lambda item: item["final_score"], reverse=True)
         return scored

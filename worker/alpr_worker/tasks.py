@@ -60,6 +60,44 @@ def get_perspective_fixer() -> Optional["Perspective"]:
 from .inference.ocr import PlateOCR  # ใช้ OCR / parser ที่คุณมีอยู่แล้ว
 from .inference.master_lookup import assist_with_master
 
+# --- Crop Validator (กรอง crop ข้างรถ / เล็กเกิน) ---
+try:
+    from .inference.crop_validator import CropValidator
+    _crop_validator: Optional[CropValidator] = None
+    CROP_VALIDATOR_AVAILABLE = True
+except ImportError:
+    CROP_VALIDATOR_AVAILABLE = False
+    _crop_validator = None
+
+def get_crop_validator() -> Optional["CropValidator"]:
+    global _crop_validator
+    if not CROP_VALIDATOR_AVAILABLE:
+        return None
+    if _crop_validator is None:
+        _crop_validator = CropValidator()
+    return _crop_validator
+
+# --- Plate Dedup (กรองทะเบียนซ้ำ) ---
+try:
+    from .inference.plate_dedup import PlateDedup
+    _plate_dedup: Optional[PlateDedup] = None
+    PLATE_DEDUP_AVAILABLE = True
+except ImportError:
+    PLATE_DEDUP_AVAILABLE = False
+    _plate_dedup = None
+
+def get_plate_dedup() -> Optional["PlateDedup"]:
+    global _plate_dedup
+    if not PLATE_DEDUP_AVAILABLE:
+        return None
+    if _plate_dedup is None:
+        from redis import Redis
+        redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+        redis_client = Redis.from_url(redis_url)
+        _plate_dedup = PlateDedup(redis_client)
+    return _plate_dedup
+
+
 log = logging.getLogger(__name__)
 
 
@@ -203,6 +241,35 @@ def process_capture(capture_id: int, image_path: str):
                 log.warning("Perspective fix error (using original crop): %s", pe)
 
         # =============================================
+        # 2.5) CROP VALIDATION (reject side-view / too-small / wrong-aspect)
+        # =============================================
+        crop_validator = get_crop_validator()
+        if crop_validator is not None:
+            crop_img_for_val = cv2.imread(crop_path)
+            if crop_img_for_val is not None:
+                val_result = crop_validator.validate(crop_img_for_val)
+                if not val_result.passed:
+                    log.info(
+                        "CropValidator REJECT capture_id=%s: %s (aspect=%.2f size=%dx%d)",
+                        capture_id, val_result.reject_reason,
+                        val_result.aspect_ratio, val_result.width, val_result.height,
+                    )
+                    return {
+                        "ok": False,
+                        "error": f"crop_rejected:{val_result.reject_reason}",
+                        "capture_id": capture_id,
+                        "image_path": image_path,
+                        "crop_validation": {
+                            "aspect_ratio": val_result.aspect_ratio,
+                            "width": val_result.width,
+                            "height": val_result.height,
+                            "contrast": val_result.contrast,
+                            "edge_density": val_result.edge_density,
+                            "is_side_view": val_result.is_side_view,
+                        },
+                    }
+
+        # =============================================
         # 3) OCR
         # =============================================
         o = ocr.read_plate(crop_path, debug_dir=STORAGE_DIR / "debug", debug_id=str(capture_id))
@@ -226,6 +293,35 @@ def process_capture(capture_id: int, image_path: str):
                 raw.get("chosen_variant"),
                 raw.get("candidates"),
             )
+
+        # =============================================
+        # 2.5) CROP VALIDATION (reject side-view / too-small / wrong-aspect)
+        # =============================================
+        crop_validator = get_crop_validator()
+        if crop_validator is not None:
+            crop_img_for_val = cv2.imread(crop_path)
+            if crop_img_for_val is not None:
+                val_result = crop_validator.validate(crop_img_for_val)
+                if not val_result.passed:
+                    log.info(
+                        "CropValidator REJECT capture_id=%s: %s (aspect=%.2f size=%dx%d)",
+                        capture_id, val_result.reject_reason,
+                        val_result.aspect_ratio, val_result.width, val_result.height,
+                    )
+                    return {
+                        "ok": False,
+                        "error": f"crop_rejected:{val_result.reject_reason}",
+                        "capture_id": capture_id,
+                        "image_path": image_path,
+                        "crop_validation": {
+                            "aspect_ratio": val_result.aspect_ratio,
+                            "width": val_result.width,
+                            "height": val_result.height,
+                            "contrast": val_result.contrast,
+                            "edge_density": val_result.edge_density,
+                            "is_side_view": val_result.is_side_view,
+                        },
+                    }
 
         # =============================================
         # 4) INSERT detections

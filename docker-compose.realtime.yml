@@ -142,8 +142,8 @@ services:
     environment:
       TZ: Asia/Bangkok
       # Camera settings
-      CAMERA_ID: PCN_Lane4
-      RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+      #CAMERA_ID: PCN_Lane4
+      #RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
       
       # Database & Redis
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
@@ -210,6 +210,21 @@ services:
       RTSP_LINE_MIN_AREA_PX: "1500"
       RTSP_LINE_COOLDOWN_SEC: "1.2"
       
+      # Crop Validator — กรอง crop ข้างรถ
+      CROP_VALIDATOR_ENABLED: "true"
+      CROP_MIN_WIDTH: "40"
+      CROP_MIN_HEIGHT: "15"
+      CROP_MIN_ASPECT_RATIO: "1.5"
+      CROP_MAX_ASPECT_RATIO: "7.0"
+      CROP_MIN_CONTRAST: "20.0"
+      CROP_MIN_EDGE_DENSITY: "0.03"
+
+      # Plate Dedup — กรองทะเบียนซ้ำ
+      PLATE_DEDUP_ENABLED: "true"
+      PLATE_DEDUP_COOLDOWN_SEC: "60"
+      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
+      PLATE_DEDUP_CAMERA_SCOPE: "true"
+
     volumes:
       - ./storage:/storage
     command:
@@ -219,7 +234,7 @@ services:
       - --camera-id
       - PCN_Lane4
       - --rtsp-url
-      - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+      - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
     depends_on:
@@ -231,33 +246,225 @@ services:
       - alpr-network
     restart: unless-stopped
 
-  # ตัวอย่างกล้องที่ 2 (uncomment เพื่อใช้งาน)
-  # rtsp-producer-cam2:
-  #   build:
-  #     context: ./worker
-  #   environment:
-  #     CAMERA_ID: plaza2-lane2
-  #     RTSP_URL: rtsp://user:pass@192.168.1.101/stream
-  #     DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
-  #     REDIS_URL: redis://redis:6379/0
-  #     STORAGE_DIR: /storage
-  #     RTSP_TARGET_FPS: "2.0"
-  #     RTSP_ENABLE_MOTION_FILTER: "true"
-  #     RTSP_MOTION_THRESHOLD: "5.0"
-  #     RTSP_ENABLE_QUALITY_FILTER: "true"
-  #     RTSP_MIN_QUALITY_SCORE: "40.0"
-  #     RTSP_ENABLE_DEDUP: "true"
-  #   volumes:
-  #     - ./storage:/storage
-  #   command: python -m alpr_worker.rtsp.frame_producer --camera-id plaza2-lane2 --rtsp-url $RTSP_URL --fps 2.0
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   networks:
-  #     - alpr-network
-  #   restart: unless-stopped
+  rtsp-producer-cam2:
+    build:
+      context: ./worker
+    environment:
+      TZ: Asia/Bangkok
+      # Camera settings
+      #CAMERA_ID: PCN_Lane5
+      #RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp
+      
+      # Database & Redis
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      
+
+      NIGHT_ENHANCEMENT_AVAILABLE: "true"
+      NIGHT_ENHANCEMENT_START_HOUR: "18"  
+      NIGHT_ENHANCEMENT_END_HOUR: "6"
+
+      
+      # ===== Frame Capture =====
+      # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
+      # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
+      RTSP_TARGET_FPS: "5.0"
+      RTSP_RECONNECT_SEC: "2.0"
+      
+      # ===== Motion Filter: ปิด! =====
+      # ปัญหา: รถชะลอเข้าด่าน = motion น้อย → ถูกกรองทิ้ง
+      # ที่ด่านเก็บเงิน motion filter ไม่เหมาะ เพราะรถเกือบหยุด
+      RTSP_ENABLE_MOTION_FILTER: "false"
+      RTSP_MOTION_THRESHOLD: "3.0"
+      
+      # ===== Quality Filter: ลด threshold =====
+      # เดิม 40.0 สูงเกิน → ป้ายเหลือง/ป้ายไกลถูกกรองทิ้ง
+      RTSP_ENABLE_QUALITY_FILTER: "true"
+      RTSP_MIN_QUALITY_SCORE: "20.0"
+      
+      # ===== Dedup: ลดความเข้มงวด =====
+      # เดิม threshold=5 เข้มเกิน → เฟรมดีๆ ถูกกรองว่าซ้ำ
+      RTSP_ENABLE_DEDUP: "true"
+      RTSP_DEDUP_CACHE_SIZE: "30"
+      RTSP_DEDUP_THRESHOLD: "10"
+
+      # ===== Quality Gate: ลด threshold สำหรับป้ายเหลือง =====
+      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "3.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
+
+      # ===== Best Shot: ปรับให้รับรถติดๆ กันได้ =====
+      # Window 3วิ + Gap 0.8วิ = ส่ง bestshot เร็วขึ้น ไม่พลาดรถคันถัดไป
+      RTSP_BESTSHOT_ENABLED: "true"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "0.8"
+      RTSP_BESTSHOT_MIN_FRAMES: "1"
+
+      # ===== ROI: ปรับจากภาพ PCN-MM04 =====
+      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_X1: "0.15"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.80"
+      RTSP_ROI_Y2: "0.90"
+
+      # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
+      RTSP_LINE_ENABLED: "false"
+      RTSP_LINE_X1: "0.27"
+      RTSP_LINE_Y1: "0.45"
+      RTSP_LINE_X2: "0.80"
+      RTSP_LINE_Y2: "0.45"
+      RTSP_LINE_DIRECTION: "down"
+      RTSP_LINE_BAND_PX: "40"
+      RTSP_LINE_MIN_AREA_PX: "1500"
+      RTSP_LINE_COOLDOWN_SEC: "1.2"
+      
+      # Crop Validator — กรอง crop ข้างรถ
+      CROP_VALIDATOR_ENABLED: "true"
+      CROP_MIN_WIDTH: "40"
+      CROP_MIN_HEIGHT: "15"
+      CROP_MIN_ASPECT_RATIO: "1.5"
+      CROP_MAX_ASPECT_RATIO: "7.0"
+      CROP_MIN_CONTRAST: "20.0"
+      CROP_MIN_EDGE_DENSITY: "0.03"
+
+      # Plate Dedup — กรองทะเบียนซ้ำ
+      PLATE_DEDUP_ENABLED: "true"
+      PLATE_DEDUP_COOLDOWN_SEC: "60"
+      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
+      PLATE_DEDUP_CAMERA_SCOPE: "true"
+
+    volumes:
+      - ./storage:/storage
+    command:
+      - python
+      - -m
+      - alpr_worker.rtsp.frame_producer
+      - --camera-id
+      - PCN_Lane5
+      - --rtsp-url
+      - rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265
+      - --fps
+      - "3.0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
+
+    rtsp-producer-cam3:
+    build:
+      context: ./worker
+    environment:
+      TZ: Asia/Bangkok
+      # Camera settings
+      #CAMERA_ID: PCN_Lane6
+      #RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp
+      
+      # Database & Redis
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      
+
+      NIGHT_ENHANCEMENT_AVAILABLE: "true"
+      NIGHT_ENHANCEMENT_START_HOUR: "18"  
+      NIGHT_ENHANCEMENT_END_HOUR: "6"
+
+      
+      # ===== Frame Capture =====
+      # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
+      # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
+      RTSP_TARGET_FPS: "5.0"
+      RTSP_RECONNECT_SEC: "2.0"
+      
+      # ===== Motion Filter: ปิด! =====
+      # ปัญหา: รถชะลอเข้าด่าน = motion น้อย → ถูกกรองทิ้ง
+      # ที่ด่านเก็บเงิน motion filter ไม่เหมาะ เพราะรถเกือบหยุด
+      RTSP_ENABLE_MOTION_FILTER: "false"
+      RTSP_MOTION_THRESHOLD: "3.0"
+      
+      # ===== Quality Filter: ลด threshold =====
+      # เดิม 40.0 สูงเกิน → ป้ายเหลือง/ป้ายไกลถูกกรองทิ้ง
+      RTSP_ENABLE_QUALITY_FILTER: "true"
+      RTSP_MIN_QUALITY_SCORE: "20.0"
+      
+      # ===== Dedup: ลดความเข้มงวด =====
+      # เดิม threshold=5 เข้มเกิน → เฟรมดีๆ ถูกกรองว่าซ้ำ
+      RTSP_ENABLE_DEDUP: "true"
+      RTSP_DEDUP_CACHE_SIZE: "30"
+      RTSP_DEDUP_THRESHOLD: "10"
+
+      # ===== Quality Gate: ลด threshold สำหรับป้ายเหลือง =====
+      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "3.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
+
+      # ===== Best Shot: ปรับให้รับรถติดๆ กันได้ =====
+      # Window 3วิ + Gap 0.8วิ = ส่ง bestshot เร็วขึ้น ไม่พลาดรถคันถัดไป
+      RTSP_BESTSHOT_ENABLED: "true"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "0.8"
+      RTSP_BESTSHOT_MIN_FRAMES: "1"
+
+      # ===== ROI: ปรับจากภาพ PCN-MM04 =====
+      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_X1: "0.15"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.80"
+      RTSP_ROI_Y2: "0.90"
+
+      # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
+      RTSP_LINE_ENABLED: "false"
+      RTSP_LINE_X1: "0.27"
+      RTSP_LINE_Y1: "0.45"
+      RTSP_LINE_X2: "0.80"
+      RTSP_LINE_Y2: "0.45"
+      RTSP_LINE_DIRECTION: "down"
+      RTSP_LINE_BAND_PX: "40"
+      RTSP_LINE_MIN_AREA_PX: "1500"
+      RTSP_LINE_COOLDOWN_SEC: "1.2"
+      
+      # Crop Validator — กรอง crop ข้างรถ
+      CROP_VALIDATOR_ENABLED: "true"
+      CROP_MIN_WIDTH: "40"
+      CROP_MIN_HEIGHT: "15"
+      CROP_MIN_ASPECT_RATIO: "1.5"
+      CROP_MAX_ASPECT_RATIO: "7.0"
+      CROP_MIN_CONTRAST: "20.0"
+      CROP_MIN_EDGE_DENSITY: "0.03"
+
+      # Plate Dedup — กรองทะเบียนซ้ำ
+      PLATE_DEDUP_ENABLED: "true"
+      PLATE_DEDUP_COOLDOWN_SEC: "60"
+      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
+      PLATE_DEDUP_CAMERA_SCOPE: "true"
+
+    volumes:
+      - ./storage:/storage
+    command:
+      - python
+      - -m
+      - alpr_worker.rtsp.frame_producer
+      - --camera-id
+      - PCN_Lane6
+      - --rtsp-url
+      - rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265
+      - --fps
+      - "3.0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
 
   # ==================== Monitoring ====================
   flower:
