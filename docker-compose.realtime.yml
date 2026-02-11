@@ -136,7 +136,7 @@ services:
   # Producer สำหรับแต่ละกล้อง
   # Copy section นี้สำหรับกล้องเพิ่มเติม
   
-  rtsp-producer-cam1:
+rtsp-producer-cam1:
     build:
       context: ./worker
     environment:
@@ -150,34 +150,43 @@ services:
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
       
-      # Frame capture settings
-      RTSP_TARGET_FPS: "2.0"
+      # ===== Frame Capture =====
+      # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
+      # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
+      RTSP_TARGET_FPS: "3.0"
       RTSP_RECONNECT_SEC: "2.0"
       
-      # Filtering settings
-      RTSP_ENABLE_MOTION_FILTER: "true"
-      RTSP_MOTION_THRESHOLD: "5.0"
+      # ===== Motion Filter: ปิด! =====
+      # ปัญหา: รถชะลอเข้าด่าน = motion น้อย → ถูกกรองทิ้ง
+      # ที่ด่านเก็บเงิน motion filter ไม่เหมาะ เพราะรถเกือบหยุด
+      RTSP_ENABLE_MOTION_FILTER: "false"
+      RTSP_MOTION_THRESHOLD: "3.0"
       
+      # ===== Quality Filter: ลด threshold =====
+      # เดิม 40.0 สูงเกิน → ป้ายเหลือง/ป้ายไกลถูกกรองทิ้ง
       RTSP_ENABLE_QUALITY_FILTER: "true"
-      RTSP_MIN_QUALITY_SCORE: "40.0"
+      RTSP_MIN_QUALITY_SCORE: "20.0"
       
+      # ===== Dedup: ลดความเข้มงวด =====
+      # เดิม threshold=5 เข้มเกิน → เฟรมดีๆ ถูกกรองว่าซ้ำ
       RTSP_ENABLE_DEDUP: "true"
-      RTSP_DEDUP_CACHE_SIZE: "50"
-      RTSP_DEDUP_THRESHOLD: "5"
+      RTSP_DEDUP_CACHE_SIZE: "30"
+      RTSP_DEDUP_THRESHOLD: "10"
 
-      # ===== Quality Gate (ปรับสำหรับป้ายเหลือง+ขาว) =====
+      # ===== Quality Gate: ลด threshold สำหรับป้ายเหลือง =====
       QUALITY_GATE_ENABLED: "true"
-      QUALITY_GATE_MIN_PLATE_CONTRAST: "28.0"
-      QUALITY_GATE_MAX_GLARE_PCT: "2.0"
-      QUALITY_GATE_MIN_COLOR_SATURATION: "5.0"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "3.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      # ===== Best Shot Buffer (ปรับ window ให้รอนานขึ้น) =====
+      # ===== Best Shot: ปรับให้รับรถติดๆ กันได้ =====
+      # Window 3วิ + Gap 0.8วิ = ส่ง bestshot เร็วขึ้น ไม่พลาดรถคันถัดไป
       RTSP_BESTSHOT_ENABLED: "true"
-      RTSP_BESTSHOT_WINDOW_SEC: "4.0"
-      RTSP_BESTSHOT_GAP_SEC: "2.0"
-      RTSP_BESTSHOT_MIN_FRAMES: "2"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "0.8"
+      RTSP_BESTSHOT_MIN_FRAMES: "1"
 
-      # ===== ROI Zone (ปรับจากภาพ PCN-MM04 แท็กซี่) =====
+      # ===== ROI: ปรับจากภาพ PCN-MM04 =====
       RTSP_ROI_ENABLED: "true"
       RTSP_ROI_X1: "0.10"
       RTSP_ROI_Y1: "0.30"
@@ -186,7 +195,6 @@ services:
       
     volumes:
       - ./storage:/storage
-    # ✅ FIX: ใช้ array form + escape special chars
     command:
       - python
       - -m
@@ -196,7 +204,7 @@ services:
       - --rtsp-url
       - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
       - --fps
-      - "2.0"
+      - "3.0"
     depends_on:
       postgres:
         condition: service_healthy
@@ -205,7 +213,6 @@ services:
     networks:
       - alpr-network
     restart: unless-stopped
-
   # ตัวอย่างกล้องที่ 2 (uncomment เพื่อใช้งาน)
   # rtsp-producer-cam2:
   #   build:
