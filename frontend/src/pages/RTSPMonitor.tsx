@@ -35,8 +35,10 @@ type WsPayload = {
 const API_BASE = (import.meta as any).env.VITE_API_BASE?.replace(/\/$/, "") || "";
 const WS_BASE = ((import.meta as any).env.VITE_WS_BASE || "").replace(/\/$/, "");
 const OVERLAYS_STORAGE_PREFIX = "rtsp-overlays";
-const ENABLE_MJPEG_STREAM = ((import.meta as any).env.VITE_ENABLE_MJPEG_STREAM || "").toLowerCase() === "true";
-const ENABLE_OVERLAY_API = ((import.meta as any).env.VITE_ENABLE_OVERLAY_API || "").toLowerCase() === "true";
+const ENABLE_MJPEG_STREAM =
+  ((import.meta as any).env.VITE_ENABLE_MJPEG_STREAM || "").toLowerCase() === "true";
+const ENABLE_OVERLAY_API =
+  ((import.meta as any).env.VITE_ENABLE_OVERLAY_API || "").toLowerCase() === "true";
 const overlayAvailability = new Map<string, "UNKNOWN" | "LOADING" | "MISSING" | "AVAILABLE">();
 
 function overlaysStorageKey(cameraId: string) {
@@ -64,9 +66,10 @@ export default function RTSPMonitor() {
   // --- Stream URL (MJPEG) ---
   const mjpegUrl = useMemo(() => {
     // backend ควรมี: GET /api/streams/{camera_id}/mjpeg
-    if (!ENABLE_MJPEG_STREAM || !API_BASE) return "";
-    return `${API_BASE}/api/streams/${encodeURIComponent(cameraId)}/mjpeg`;
-  }, [cameraId]);
+    if (!ENABLE_MJPEG_STREAM || !API_BASE || streamLoadFailed) return "";
+    const base = `${API_BASE}/api/streams/${encodeURIComponent(cameraId)}/mjpeg`;
+    return `${base}?attempt=${streamAttempt}`;
+  }, [cameraId, streamAttempt, streamLoadFailed]);
 
   // --- Refs for sizing & drawing ---
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -88,6 +91,13 @@ export default function RTSPMonitor() {
   const [showBoxes, setShowBoxes] = useState(true);
   const [showIds, setShowIds] = useState(true);
   const [showSpeed, setShowSpeed] = useState(true);
+  const [streamLoadFailed, setStreamLoadFailed] = useState(false);
+  const [streamAttempt, setStreamAttempt] = useState(0);
+
+  useEffect(() => {
+    setStreamLoadFailed(false);
+    setStreamAttempt(0);
+  }, [cameraId]);
 
   // --- API calls: load/save overlays ---
   async function loadOverlays(camId: string) {
@@ -120,6 +130,7 @@ export default function RTSPMonitor() {
     // backend ควรมี: GET /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url);
+
     if (res.status === 404) {
       overlayAvailability.set(camId, "MISSING");
       setLines([]);
@@ -130,6 +141,7 @@ export default function RTSPMonitor() {
       overlayAvailability.set(camId, "UNKNOWN");
       throw new Error(`Load overlays failed: ${res.status}`);
     }
+
     overlayAvailability.set(camId, "AVAILABLE");
     const data = (await res.json()) as OverlayPayload;
     setLines(data.lines || []);
@@ -138,7 +150,7 @@ export default function RTSPMonitor() {
 
   async function saveOverlays(camId: string, payloadLines: VirtualLine[]) {
     localStorage.setItem(
-      overlaysStorageKey(camId), 
+      overlaysStorageKey(camId),
       JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
     );
 
@@ -151,9 +163,10 @@ export default function RTSPMonitor() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
     });
+
     if (res.status === 404) {
       overlayAvailability.set(camId, "MISSING");
-      return; 
+      return;
     }
     if (!res.ok) throw new Error(`Save overlays failed: ${res.status}`);
     overlayAvailability.set(camId, "AVAILABLE");
@@ -172,7 +185,7 @@ export default function RTSPMonitor() {
     if (!WS_BASE) {
       setObjects([]);
       return;
-    };
+    }
 
     // backend ควรมี: WS /ws/cameras/{camera_id}
     const wsUrl = `${WS_BASE}/ws/cameras/${encodeURIComponent(cameraId)}`;
@@ -181,7 +194,7 @@ export default function RTSPMonitor() {
 
     const connectTimer = window.setTimeout(() => {
       if (!isActive) return;
-      
+
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -204,6 +217,7 @@ export default function RTSPMonitor() {
         }
       };
     }, 150); // delay to avoid rapid reconnects
+
     return () => {
       isActive = false;
       window.clearTimeout(connectTimer);
@@ -251,7 +265,9 @@ export default function RTSPMonitor() {
   }
 
   // --- Hit test endpoints for dragging ---
-  function findEndpointHit(normPt: Point): { lineId: string; endpoint: "p1" | "p2" } | null {
+  function findEndpointHit(
+    normPt: Point,
+  ): { lineId: string; endpoint: "p1" | "p2" } | null {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
@@ -314,7 +330,7 @@ export default function RTSPMonitor() {
         prev.map((ln) => {
           if (ln.id !== lineId) return ln;
           return { ...ln, [endpoint]: np } as VirtualLine;
-        })
+        }),
       );
       return;
     }
@@ -375,8 +391,8 @@ export default function RTSPMonitor() {
         // direction arrow (simple)
         const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
         const dir = ln.direction === "A_TO_B" ? 1 : -1;
-        const vx = (p2.x - p1.x);
-        const vy = (p2.y - p1.y);
+        const vx = p2.x - p1.x;
+        const vy = p2.y - p1.y;
         const len = Math.max(1, Math.sqrt(vx * vx + vy * vy));
         const ux = (vx / len) * dir;
         const uy = (vy / len) * dir;
@@ -413,7 +429,9 @@ export default function RTSPMonitor() {
           const parts: string[] = [];
           if (showIds) parts.push(`ID:${obj.track_id}`);
           if (obj.plate) parts.push(obj.plate);
-          if (showSpeed && typeof obj.speed_kmh === "number") parts.push(`${obj.speed_kmh.toFixed(0)} km/h`);
+          if (showSpeed && typeof obj.speed_kmh === "number") {
+            parts.push(`${obj.speed_kmh.toFixed(0)} km/h`);
+          }
 
           const label = parts.join("  ");
           if (label) {
@@ -432,7 +450,10 @@ export default function RTSPMonitor() {
   }, [lines, selectedLineId, drawMode, tempP1, objects, showBoxes, showIds, showSpeed]);
 
   // --- Right panel actions ---
-  const selectedLine = useMemo(() => lines.find((l) => l.id === selectedLineId) || null, [lines, selectedLineId]);
+  const selectedLine = useMemo(
+    () => lines.find((l) => l.id === selectedLineId) || null,
+    [lines, selectedLineId],
+  );
 
   function updateSelectedLine(patch: Partial<VirtualLine>) {
     if (!selectedLine) return;
@@ -454,17 +475,35 @@ export default function RTSPMonitor() {
           <input
             value={cameraId}
             onChange={(e) => setCameraId(e.target.value)}
-            style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #333", background: "#1b1b1b", color: "#fff" }}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid #333",
+              background: "#1b1b1b",
+              color: "#fff",
+            }}
           />
           <button
             onClick={() => loadOverlays(cameraId).catch((e) => alert(String(e)))}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #333", background: "#222", color: "#fff" }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #333",
+              background: "#222",
+              color: "#fff",
+            }}
           >
             Load Lines
           </button>
           <button
             onClick={() => saveOverlays(cameraId, lines).then(() => alert("Saved")).catch((e) => alert(String(e)))}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #333", background: "#2a2a2a", color: "#fff" }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #333",
+              background: "#2a2a2a",
+              color: "#fff",
+            }}
           >
             Save Lines
           </button>
@@ -473,7 +512,13 @@ export default function RTSPMonitor() {
               setDrawMode("ADD_LINE");
               setTempP1(null);
             }}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #333", background: "#0b3", color: "#fff" }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #333",
+              background: "#0b3",
+              color: "#fff",
+            }}
           >
             + Add Line
           </button>
@@ -489,6 +534,7 @@ export default function RTSPMonitor() {
               src={mjpegUrl}
               alt="rtsp"
               onLoad={onImgLoad}
+              onError={() => setStreamLoadFailed(true)}
               style={{ width: "100%", display: "block" }}
             />
           ) : (
@@ -503,11 +549,35 @@ export default function RTSPMonitor() {
                 textAlign: "center",
               }}
             >
-              MJPEG stream is disabled. Set <code>VITE_ENABLE_MJPEG_STREAM=true</code> when backend supports
-              <code> /api/streams/{'{camera_id}'}/mjpeg</code>.
+              {streamLoadFailed ? (
+                <>
+                  Stream not ready for camera <code>{cameraId}</code>. Start RTSP producer first, then click{" "}
+                  <button
+                    onClick={() => {
+                      setStreamLoadFailed(false);
+                      setStreamAttempt((v) => v + 1);
+                    }}
+                    style={{
+                      marginLeft: 6,
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #555",
+                      background: "#222",
+                      color: "#fff",
+                    }}
+                  >
+                    Retry
+                  </button>
+                  .
+                </>
+              ) : (
+                <>
+                  MJPEG stream is disabled. Set <code>VITE_ENABLE_MJPEG_STREAM=true</code> when backend supports
+                  <code> /api/streams/{"{camera_id}"}/mjpeg</code>.
+                </>
+              )}
             </div>
           )}
-
           <canvas
             ref={canvasRef}
             style={{
@@ -566,7 +636,8 @@ export default function RTSPMonitor() {
                 <span style={{ color: l.color }}>{l.color}</span>
               </div>
               <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>
-                dir: {l.direction} | p1({l.p1.x.toFixed(2)},{l.p1.y.toFixed(2)}) → p2({l.p2.x.toFixed(2)},{l.p2.y.toFixed(2)})
+                dir: {l.direction} | p1({l.p1.x.toFixed(2)},{l.p1.y.toFixed(2)}) → p2({l.p2.x.toFixed(2)},
+                {l.p2.y.toFixed(2)})
               </div>
             </button>
           ))}
@@ -584,7 +655,13 @@ export default function RTSPMonitor() {
                 <input
                   value={selectedLine.name}
                   onChange={(e) => updateSelectedLine({ name: e.target.value })}
-                  style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #333", background: "#0e0e0e", color: "#fff" }}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    border: "1px solid #333",
+                    background: "#0e0e0e",
+                    color: "#fff",
+                  }}
                 />
               </label>
 
@@ -594,7 +671,13 @@ export default function RTSPMonitor() {
                   type="color"
                   value={selectedLine.color}
                   onChange={(e) => updateSelectedLine({ color: e.target.value })}
-                  style={{ height: 42, width: "100%", borderRadius: 10, border: "1px solid #333", background: "#0e0e0e" }}
+                  style={{
+                    height: 42,
+                    width: "100%",
+                    borderRadius: 10,
+                    border: "1px solid #333",
+                    background: "#0e0e0e",
+                  }}
                 />
               </label>
 
@@ -603,7 +686,13 @@ export default function RTSPMonitor() {
                 <select
                   value={selectedLine.direction}
                   onChange={(e) => updateSelectedLine({ direction: e.target.value as LineDir })}
-                  style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #333", background: "#0e0e0e", color: "#fff" }}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    border: "1px solid #333",
+                    background: "#0e0e0e",
+                    color: "#fff",
+                  }}
                 >
                   <option value="A_TO_B">A_TO_B</option>
                   <option value="B_TO_A">B_TO_A</option>
@@ -612,7 +701,13 @@ export default function RTSPMonitor() {
 
               <button
                 onClick={deleteSelected}
-                style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid #522", background: "#2a1111", color: "#fff" }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #522",
+                  background: "#2a1111",
+                  color: "#fff",
+                }}
               >
                 Delete Line
               </button>
@@ -623,7 +718,9 @@ export default function RTSPMonitor() {
         <hr style={{ borderColor: "#2a2a2a", marginTop: 12 }} />
 
         <div style={{ color: "#aaa", fontSize: 12, lineHeight: 1.5 }}>
-          <div><b>Tips</b></div>
+          <div>
+            <b>Tips</b>
+          </div>
           <div>• Add Line: click 2 points to create.</div>
           <div>• Edit: drag endpoints (white dots) to adjust.</div>
           <div>• Save Lines: store in backend per camera.</div>
