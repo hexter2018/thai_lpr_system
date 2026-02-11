@@ -119,7 +119,7 @@ _DEFAULT_TOP_K = 3
 _DEFAULT_CONSENSUS_MIN = 0.55
 _DEFAULT_MARGIN_MIN = 0.16
 _DEFAULT_DEBUG_CONFIDENCE_THRESHOLD = 0.62
-_DEFAULT_PROVINCE_MIN_SCORE = 65.0
+_DEFAULT_PROVINCE_MIN_SCORE = 55.0
 
 
 @dataclass
@@ -165,13 +165,25 @@ class PlateOCR:
 
         variant_results: List[Dict[str, Any]] = []
         for variant_name, variant_img in self._build_variants(img):
-            detections = self.reader.readtext(variant_img, detail=1, allowlist=_THAI_ALLOWLIST)
+            detections = self.reader.readtext(variant_img, detail=1, allowlist=_THAI_ALLOWLIST, width_ths=0.7, paragraph=False)
             candidate = self._evaluate_variant(variant_name, detections)
             variant_results.append(candidate)
 
         topline_variant = self._topline_roi_pass(img)
         if topline_variant:
             variant_results.append(topline_variant)
+
+        # Digit recovery: ถ้าทุก variant ได้ text < 4 chars ลอง OCR ด้วย upscale สูง
+        _max_tlen = max(
+            (len(c.get("text", ""))
+             for vr in variant_results
+             for c in (vr.get("candidates") or [])),
+            default=0,
+        )
+        if _max_tlen < 4:
+            _dr = self._digit_recovery_pass(img)
+            if _dr:
+                variant_results.append(_dr)
 
         aggregated = self._aggregate_plate_candidates(variant_results)
         best = aggregated["best"]
@@ -271,6 +283,11 @@ class PlateOCR:
         green_inv = cv2.bitwise_not(green_mask)
 
         up3 = cv2.resize(clahe, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
+        up4 = cv2.resize(clahe, None, fx=4.0, fy=4.0, interpolation=cv2.INTER_CUBIC)
+        up4_sharp = cv2.filter2D(up4, -1, np.array([[0,-1,0],[-1,5,-1],[0,-1,0]], dtype=np.float32))
+
+        kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        morph_close = cv2.morphologyEx(otsu, cv2.MORPH_CLOSE, kernel_close)
 
         # Deskew: แก้ป้ายเอียงจาก perspective ของกล้อง
         deskewed = self._deskew_plate(gray)
@@ -278,6 +295,9 @@ class PlateOCR:
         # Sharpen: เพิ่มขอบตัวอักษรให้ชัดขึ้น
         _sharpen_kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32)
         sharpened = cv2.filter2D(clahe, -1, _sharpen_kernel)
+
+        bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
+        bilateral_clahe = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(6, 6)).apply(bilateral)
 
         variants = [
             ("gray", gray),
@@ -287,11 +307,15 @@ class PlateOCR:
             ("green_mask", green_inv),
             ("deskew", deskewed),
             ("sharpen", sharpened),
+            ("bilateral_clahe", bilateral_clahe),
+            ("morph_close", morph_close),
             ("upscale_x2", up2),
             ("upscale_adaptive_x2", up2_adaptive),
             ("upscale_otsu_x2", up2_otsu),
             ("upscale_x3", up3),
+            ("upscale_x4_sharp", up4_sharp),
         ]
+
         if self.variant_names:
             variants = [variant for variant in variants if variant[0] in self.variant_names]
         if self.variant_limit:
@@ -370,6 +394,7 @@ class PlateOCR:
 
         best_line = lines[0]
         best_score = float("-inf")
+        best_text = ""
 
         for line in lines:
             text = "".join(tok["text"] for tok in line)
@@ -380,10 +405,30 @@ class PlateOCR:
             base_conf = float(np.mean(confs))
             digit_bonus = 0.02 * sum(ch.isdigit() for ch in normalized)
             valid_bonus = 0.3 if is_valid_plate(normalized) else 0.0
-            score = base_conf + digit_bonus + valid_bonus
+            len_bonus = 0.05 * min(len(normalized), 7)
+            score = base_conf + digit_bonus + valid_bonus + len_bonus
             if score > best_score:
                 best_score = score
                 best_line = line
+                best_text = normalized
+
+        # ถ้า text สั้น (<4) ลอง merge tokens ของ top line
+        if len(best_text) < 4 and lines:
+            top_tokens = lines[0]
+            merged = self._normalize_plate("".join(t["text"] for t in top_tokens))
+            if len(merged) > len(best_text):
+                confs = [float(t["conf"]) for t in top_tokens] or [0.0]
+                m_score = float(np.mean(confs)) + 0.02 * sum(c.isdigit() for c in merged) + (0.3 if is_valid_plate(merged) else 0.0) + 0.05 * min(len(merged), 7)
+                if m_score >= best_score * 0.85 or len(merged) >= len(best_text) + 2:
+                    best_line, best_score, best_text = top_tokens, m_score, merged
+
+        # ถ้ายังสั้น ลอง merge ทุก line แล้ว regex จับ plate pattern
+        if len(best_text) < 4 and len(lines) >= 2:
+            all_tok = [t for ln in lines for t in ln]
+            all_norm = self._normalize_plate("".join(t["text"] for t in all_tok))
+            m = re.match(r"^(\d?[ก-ฮ]{1,2}\d{1,4})", all_norm)
+            if m and is_valid_plate(m.group(1)) and len(m.group(1)) > len(best_text):
+                best_line, best_text = all_tok, m.group(1)
 
         return "".join(tok["text"] for tok in best_line), best_line
 
@@ -458,7 +503,7 @@ class PlateOCR:
 
     def _topline_roi_pass(self, image: np.ndarray) -> Optional[Dict[str, Any]]:
         h, w = image.shape[:2]
-        end = int(h * 0.55)
+        end = int(h * 0.65)
         roi = image[0:end, 0:w]
         if roi.size == 0:
             return None
@@ -485,6 +530,27 @@ class PlateOCR:
                 best_variant = candidate
 
         return best_variant
+
+    def _digit_recovery_pass(self, image: np.ndarray) -> Optional[Dict[str, Any]]:
+        """OCR pass เน้นตัวเลข — ใช้เมื่อ text สั้นผิดปกติ"""
+        h, w = image.shape[:2]
+        roi = image[0:int(h * 0.60), 0:w]
+        if roi.size == 0:
+            return None
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        up = cv2.resize(gray, None, fx=4.0, fy=4.0, interpolation=cv2.INTER_CUBIC)
+        cl = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(6, 6)).apply(up)
+        sk = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32)
+        sh = cv2.filter2D(cl, -1, sk)
+        ot = cv2.threshold(sh, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        best: Optional[Dict[str, Any]] = None
+        for name, v in [("digit_up4_sharp", sh), ("digit_up4_otsu", ot)]:
+            dets = self.reader.readtext(v, detail=1, allowlist=_THAI_ALLOWLIST,
+                                        paragraph=False, min_size=10, width_ths=0.8)
+            c = self._evaluate_variant(name, dets, score_boost=0.08)
+            if not best or c["score"] > best["score"]:
+                best = c
+        return best
 
     def _province_roi_pass(self, image: np.ndarray) -> Dict[str, Any]:
         h, w = image.shape[:2]
@@ -713,18 +779,26 @@ class PlateOCR:
         consensus_ratio = float(best.get("consensus_ratio") or 0.0)
         margin_ratio = float(best.get("margin_ratio") or 0.0)
 
-        consensus_factor = 0.7 + 0.3 * min(1.0, consensus_ratio)
-        margin_factor = 0.7 + 0.3 * min(1.0, margin_ratio * 2.0)
+        consensus_factor = 0.78 + 0.22 * min(1.0, consensus_ratio)
+        margin_factor = 0.78 + 0.22 * min(1.0, margin_ratio * 2.0)
         confidence = base_conf * consensus_factor * margin_factor
 
         if "low_consensus" in flags:
-            confidence *= 0.85
+            confidence *= 0.90
         if "confusable_chars" in flags:
-            confidence *= 0.95
+            confidence *= 0.97
 
         from .validate import is_valid_plate
-        if is_valid_plate(best.get("text", "")):
-            confidence *= 1.08
+        plate_text = best.get("text", "")
+        if is_valid_plate(plate_text):
+            confidence *= 1.12
+        plate_len = len(plate_text)
+        if plate_len >= 5:
+            confidence *= 1.05
+        elif plate_len >= 4:
+            confidence *= 1.02
+        elif plate_len <= 2:
+            confidence *= 0.70
 
         return max(0.0, min(confidence, 0.97))
 
@@ -797,7 +871,7 @@ class PlateOCR:
 
         tokens.sort(key=lambda t: t["y"])
         ys = [t["y"] for t in tokens]
-        threshold = max(8.0, (max(ys) - min(ys)) * 0.22)
+        threshold = max(12.0, (max(ys) - min(ys)) * 0.30)
 
         clusters: List[List[Dict[str, Any]]] = []
         for tok in tokens:

@@ -96,6 +96,17 @@ services:
       # ALPR settings
       MASTER_CONF_THRESHOLD: "0.95"
       
+      # Perspective Fix (post-crop pre-OCR)
+      PERSPECTIVE_FIX_ENABLED: "true"
+      PERSPECTIVE_FIX_MIN_AREA: "500"
+
+      # OCR tuning
+      OCR_PROVINCE_MIN_SCORE: "55.0"
+      OCR_VARIANT_LIMIT: "14"
+      OCR_CONSENSUS_MIN: "0.45"
+      OCR_MARGIN_MIN: "0.12"
+      OCR_DEBUG_CONFIDENCE_THRESHOLD: "0.55"
+
       # Headlight Deglare (preprocessing ก่อน YOLO สำหรับภาพกลางคืน)
       DEGLARE_ENABLED: "true"
       DEGLARE_SATURATION_THRESHOLD: "240"

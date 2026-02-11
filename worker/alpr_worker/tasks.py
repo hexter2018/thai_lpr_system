@@ -26,7 +26,7 @@ try:
 except ImportError:
     DEGLARE_AVAILABLE = False
     _deglare = None
-    log.warning("HeadlightDeglare not available (deglare.py not found)")
+    logging.getLogger(__name__).warning("HeadlightDeglare not available")
 
 
 def get_deglare() -> Optional["HeadlightDeglare"]:
@@ -36,6 +36,27 @@ def get_deglare() -> Optional["HeadlightDeglare"]:
     if _deglare is None:
         _deglare = HeadlightDeglare()
     return _deglare
+
+
+# --- Perspective Fix (แก้ป้ายเอียง post-crop) ---
+try:
+    from .rtsp.perspective import Perspective
+    _perspective_fixer: Optional["Perspective"] = None
+    PERSPECTIVE_FIX_AVAILABLE = True
+except ImportError:
+    PERSPECTIVE_FIX_AVAILABLE = False
+    _perspective_fixer = None
+
+
+def get_perspective_fixer() -> Optional["Perspective"]:
+    global _perspective_fixer
+    if not PERSPECTIVE_FIX_AVAILABLE:
+        return None
+    if _perspective_fixer is None:
+        _perspective_fixer = Perspective()
+    return _perspective_fixer
+
+
 from .inference.ocr import PlateOCR  # ใช้ OCR / parser ที่คุณมีอยู่แล้ว
 from .inference.master_lookup import assist_with_master
 
@@ -123,56 +144,67 @@ def process_capture(capture_id: int, image_path: str):
 
     db = SessionLocal()
     try:
-        # 1) detect + crop (with optional deglare preprocessing)
+        # =============================================
+        # 1) DETECT + CROP (with optional deglare)
+        # =============================================
         det = None
         crop_path = None
-        
-        # Try deglare preprocessing first (helps with nighttime headlight glare)
+
         deglare = get_deglare()
         if deglare:
             try:
-                import cv2 as _cv2
-                frame = _cv2.imread(str(img_path))
+                frame = cv2.imread(str(img_path))
                 if frame is not None:
                     processed, original = deglare.process_for_detection(frame)
-                    
+
                     if original is not None:
-                        # Deglare changed the image — try processed version first
+                        # Deglare changed the image — try processed first
                         deglared_path = str(img_path) + ".deglared.jpg"
-                        _cv2.imwrite(deglared_path, processed)
+                        cv2.imwrite(deglared_path, processed)
                         try:
                             det = detector.detect_and_crop(deglared_path)
                             crop_path = det.crop_path
                             log.info("✅ Deglare helped: plate detected after preprocessing")
                         except RuntimeError:
-                            # Deglared version failed, try original
                             try:
                                 det = detector.detect_and_crop(str(img_path))
                                 crop_path = det.crop_path
                             except RuntimeError:
-                                pass  # Both failed
+                                pass
                         finally:
-                            # Cleanup temp file
                             try:
                                 Path(deglared_path).unlink(missing_ok=True)
                             except Exception:
                                 pass
                     else:
-                        # No deglare needed (no significant glare)
                         det = detector.detect_and_crop(str(img_path))
                         crop_path = det.crop_path
             except RuntimeError:
-                # Deglare path failed completely, will be caught below
                 pass
             except Exception as e:
                 log.warning("Deglare preprocessing error: %s", e)
-        
-        # Fallback: try without deglare
+
+        # Fallback: detect without deglare
         if det is None:
             det = detector.detect_and_crop(str(img_path))
             crop_path = det.crop_path
 
-        # 2) OCR
+        # =============================================
+        # 2) PERSPECTIVE FIX (post-crop, pre-OCR)
+        # =============================================
+        pfixer = get_perspective_fixer()
+        if pfixer is not None:
+            try:
+                crop_img = cv2.imread(crop_path)
+                if crop_img is not None:
+                    fixed_img = pfixer.fix(crop_img)
+                    cv2.imwrite(crop_path, fixed_img)
+            except Exception as pe:
+                log.warning("Perspective fix error (using original crop): %s", pe)
+
+        # =============================================
+        # 3) OCR
+        # =============================================
         o = ocr.read_plate(crop_path, debug_dir=STORAGE_DIR / "debug", debug_id=str(capture_id))
         plate_text = (o.plate_text or "").strip()
         province = (o.province or "").strip()
@@ -195,10 +227,9 @@ def process_capture(capture_id: int, image_path: str):
                 raw.get("candidates"),
             )
 
-
-        # 3) INSERT detections (เก็บข้อมูล detection/crop/meta ที่นี่)
-        # *** IMPORTANT: ต้องให้ตรงกับ schema ของ table detections ของคุณ ***
-        # ถ้าชื่อ column ใน detections ไม่ตรง ให้รัน: \d detections แล้วผมจะปรับให้เป๊ะ
+        # =============================================
+        # 4) INSERT detections
+        # =============================================
         sql_ins_det = text("""
             INSERT INTO detections (
                 capture_id,
@@ -219,10 +250,12 @@ def process_capture(capture_id: int, image_path: str):
             "capture_id": int(capture_id),
             "crop_path": str(crop_path),
             "det_conf": float(det.det_conf),
-            "bbox": json.dumps(det.bbox or {}, ensure_ascii=False),  # bbox เป็น text
+            "bbox": json.dumps(det.bbox or {}, ensure_ascii=False),
         }).scalar_one()
 
-        # 4) INSERT plate_reads (ตาม schema จริง)
+        # =============================================
+        # 5) INSERT plate_reads
+        # =============================================
         sql_ins_read = text("""
             INSERT INTO plate_reads (
                 detection_id,
@@ -251,13 +284,15 @@ def process_capture(capture_id: int, image_path: str):
             "plate_text_norm": (plate_text_norm[:32] if plate_text_norm else ""),
             "province": (province[:64] if province else ""),
             "confidence": conf,
-            "status": "PENDING",  # enum readstatus
+            "status": "PENDING",
             "created_at": datetime.now(timezone.utc),
         }).scalar_one()
 
         db.commit()
 
-        # 5) master logic (ใช้ plate_text_norm เป็น key จะนิ่งกว่า)
+        # =============================================
+        # 6) master logic
+        # =============================================
         if conf >= MASTER_CONF_THRESHOLD and plate_text_norm:
             sql_upsert_master = text("""
                 INSERT INTO master_plates (
@@ -333,9 +368,6 @@ def process_capture(capture_id: int, image_path: str):
 def export_feedback_samples(limit: int = FEEDBACK_EXPORT_LIMIT):
     """
     Export MLPR feedback samples into a training manifest.
-    - Copies crop images into TRAINING_DIR/images
-    - Writes TRAINING_DIR/manifest.jsonl
-    - Marks samples as used_in_train=True
     """
     images_dir = TRAINING_DIR / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -391,13 +423,8 @@ def export_feedback_samples(limit: int = FEEDBACK_EXPORT_LIMIT):
 @celery_app.task(name="tasks.rtsp_ingest")
 def rtsp_ingest(camera_id: str, rtsp_url: str, fps: float = DEFAULT_RTSP_FPS, reconnect_sec: float = DEFAULT_RECONNECT_SEC):
     """
-    Long-running RTSP ingest:
-    - Reads stream via OpenCV FFmpeg backend
-    - Samples frames at target fps
-    - Saves frame -> inserts captures row -> enqueue process_capture
-    - Stops when Redis stop flag is set (rtsp:stop:{camera_id} == 1)
+    Long-running RTSP ingest task.
     """
-
     fps = float(fps or DEFAULT_RTSP_FPS)
     reconnect_sec = float(reconnect_sec or DEFAULT_RECONNECT_SEC)
     interval = 1.0 / max(fps, 0.1)
@@ -406,13 +433,11 @@ def rtsp_ingest(camera_id: str, rtsp_url: str, fps: float = DEFAULT_RTSP_FPS, re
     last_ts = 0.0
 
     while True:
-        # stop flag
         if should_stop(camera_id):
             if cap is not None:
                 cap.release()
             return {"ok": True, "stopped": True, "camera_id": camera_id}
 
-        # open stream
         if cap is None or not cap.isOpened():
             cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
             if not cap.isOpened():
@@ -421,7 +446,6 @@ def rtsp_ingest(camera_id: str, rtsp_url: str, fps: float = DEFAULT_RTSP_FPS, re
 
         ok, frame = cap.read()
         if not ok or frame is None:
-            # reconnect
             cap.release()
             cap = None
             time.sleep(reconnect_sec)
@@ -432,34 +456,18 @@ def rtsp_ingest(camera_id: str, rtsp_url: str, fps: float = DEFAULT_RTSP_FPS, re
             continue
         last_ts = now
 
-        # save frame
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
         out_path = STORAGE_DIR / "original" / f"rtsp_{camera_id}_{ts}.jpg"
         cv2.imwrite(str(out_path), frame)
 
-        # insert capture
         db = SessionLocal()
         try:
             digest = sha256_file(out_path)
-
             sql_ins_cap = text("""
-                INSERT INTO captures (
-                    source,
-                    camera_id,
-                    captured_at,
-                    original_path,
-                    sha256
-                )
-                VALUES (
-                    :source,
-                    :camera_id,
-                    :captured_at,
-                    :original_path,
-                    :sha256
-                )
+                INSERT INTO captures (source, camera_id, captured_at, original_path, sha256)
+                VALUES (:source, :camera_id, :captured_at, :original_path, :sha256)
                 RETURNING id
             """)
-
             cap_id = db.execute(sql_ins_cap, {
                 "source": "RTSP",
                 "camera_id": camera_id,
@@ -468,10 +476,7 @@ def rtsp_ingest(camera_id: str, rtsp_url: str, fps: float = DEFAULT_RTSP_FPS, re
                 "sha256": digest,
             }).scalar_one()
             db.commit()
-
-            # enqueue processing
             process_capture.delay(int(cap_id), str(out_path))
-
         except Exception:
             db.rollback()
         finally:
