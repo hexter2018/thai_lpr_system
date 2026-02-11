@@ -91,11 +91,6 @@ services:
       # ALPR settings
       MASTER_CONF_THRESHOLD: "0.95"
       
-      # Headlight Deglare (preprocessing ก่อน YOLO สำหรับภาพกลางคืน)
-      DEGLARE_ENABLED: "true"
-      DEGLARE_SATURATION_THRESHOLD: "240"
-      DEGLARE_CLAHE_CLIP: "3.0"
-      
       # Celery settings (เพิ่ม concurrency สำหรับ RTSP load)
       CELERY_WORKER_CONCURRENCY: "8"
       CELERY_WORKER_PREFETCH: "16"
@@ -224,6 +219,9 @@ services:
       - "5555:5555"
     environment:
       # ===== Headlight Deglare (ใหม่) =====
+      DEGLARE_ENABLED: "true"
+      DEGLARE_SATURATION_THRESHOLD: "240"
+      DEGLARE_CLAHE_CLIP: "3.0"
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
