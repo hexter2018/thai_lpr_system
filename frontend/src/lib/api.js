@@ -40,7 +40,10 @@ export async function verifyRead(readId, payload) {
 
 export async function deleteRead(readId) {
   const res = await fetch(`${API_BASE}/api/reads/${readId}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("delete read failed");
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text ? `delete read failed: ${text}` : "delete read failed");
+  }
   return res.json();
 }
 

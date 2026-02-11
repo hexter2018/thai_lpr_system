@@ -8,3 +8,5 @@ class KPI(BaseModel):
     master_total: int
     mlpr_total: int
     alpr_total: int
+    captured_total: int
+    processed_total: int

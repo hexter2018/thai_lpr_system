@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 
 from app.db.session import get_db
@@ -52,8 +53,18 @@ def delete_read(read_id: int, db: Session = Depends(get_db)):
     r = db.query(models.PlateRead).filter(models.PlateRead.id == read_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="read not found")
-    if r.verification:
-        db.delete(r.verification)
-    db.delete(r)
-    db.commit()
+    try:
+        # Delete verification rows by query to avoid relying on one-to-one
+        # relationship hydration (can break if legacy duplicate rows exist).
+        (
+            db.query(models.VerificationJob)
+            .filter(models.VerificationJob.read_id == read_id)
+            .delete(synchronize_session=False)
+        )
+        db.delete(r)
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"cannot delete read due to related records: {e.orig}") from e
+    
     return {"ok": True}

@@ -150,10 +150,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
       
+
+      NIGHT_ENHANCEMENT_AVAILABLE: "true"
+      NIGHT_ENHANCEMENT_START_HOUR: "18"  
+      NIGHT_ENHANCEMENT_END_HOUR: "6"
+
+      
       # ===== Frame Capture =====
       # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
       # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
-      RTSP_TARGET_FPS: "3.0"
+      RTSP_TARGET_FPS: "5.0"
       RTSP_RECONNECT_SEC: "2.0"
       
       # ===== Motion Filter: ปิด! =====
@@ -187,14 +193,14 @@ services:
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
       # ===== ROI: ปรับจากภาพ PCN-MM04 =====
-#      RTSP_ROI_ENABLED: "true"
-#      RTSP_ROI_X1: "0.10"
-#      RTSP_ROI_Y1: "0.30"
-#      RTSP_ROI_X2: "0.75"
-#      RTSP_ROI_Y2: "0.92"
+      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_X1: "0.15"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.80"
+      RTSP_ROI_Y2: "0.90"
 
       # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
-      RTSP_LINE_ENABLED: "true"
+      RTSP_LINE_ENABLED: "false"
       RTSP_LINE_X1: "0.27"
       RTSP_LINE_Y1: "0.45"
       RTSP_LINE_X2: "0.80"

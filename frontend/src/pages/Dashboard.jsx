@@ -240,6 +240,7 @@ export default function Dashboard() {
 
   // Mock sparkline data (in production, get from time-series API)
   const mockSparkline = [65, 72, 68, 78, 85, 82, 94]
+  const pipelineLag = Math.max((kpi.captured_total || 0) - (kpi.processed_total || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -301,6 +302,39 @@ export default function Dashboard() {
         />
       </div>
 
+      <Card className="border-cyan-300/20 bg-gradient-to-r from-cyan-600/10 to-blue-600/10">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-100">Pipeline Overview</h2>
+              <p className="text-xs text-slate-400 mt-0.5">สถานะการประมวลผลข้อมูลแบบ Real-time</p>
+            </div>
+            <Badge variant={pipelineLag > 0 ? 'warning' : 'success'} size="sm">
+              {pipelineLag > 0 ? `ค้างสะสม ${pipelineLag.toLocaleString()}` : 'ไหลลี่น'}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-amber-300/30 bg-amber-500/5 p-4">
+              <p className="text-xs text-amber-300">Pending (จริงทั้งหมด)</p>
+              <p className="mt-1 text-3xl font-bold text-amber-100">{kpi.pending.toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-400">รอผู้ตรวจสอบ</p>
+            </div>
+            <div className="rounded-xl border border-blue-300/30 bg-blue-500/5 p-4">
+              <p className="text-xs text-blue-300">Captured</p>
+              <p className="mt-1 text-3xl font-bold text-blue-100">{(kpi.captured_total || 0).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-400">บันทึกเข้าตาราง captures</p>
+            </div>
+            <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/5 p-4">
+              <p className="text-xs text-emerald-300">Processed</p>
+              <p className="mt-1 text-3xl font-bold text-emerald-100">{(kpi.processed_total || 0).toLocaleString()}</p>
+              <p className="mt-1 text-xs text-slate-400">เฟรมที่ผ่านถึง detection stage</p>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+      
       {/* Accuracy & Distribution */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Accuracy Gauge */}

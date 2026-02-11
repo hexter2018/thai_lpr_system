@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 
 from app.db.session import get_db
 from app.db import models
@@ -22,6 +22,15 @@ def dashboard_kpi(db: Session = Depends(get_db)):
     # auto_master heuristic: reads with confidence >= 0.95 and verified OR inserted into master
     auto_master = db.query(func.count(models.PlateRead.id)).filter(models.PlateRead.confidence >= 0.95).scalar() or 0
 
+    captured_total = db.query(func.count(models.Capture.id)).scalar() or 0
+
+    # Approximation of processed captures: captures that reached detection stage.
+    processed_total = (
+        db.query(func.count(distinct(models.Detection.capture_id)))
+        .scalar()
+        or 0
+    )
+
     return KPI(
         total_reads=total_reads,
         pending=pending,
@@ -30,4 +39,6 @@ def dashboard_kpi(db: Session = Depends(get_db)):
         master_total=master_total,
         mlpr_total=mlpr_total,
         alpr_total=alpr_total,
+        captured_total=captured_total,
+        processed_total=processed_total,
     )
