@@ -35,8 +35,9 @@ type WsPayload = {
 const API_BASE = (import.meta as any).env.VITE_API_BASE?.replace(/\/$/, "") || "";
 const WS_BASE = ((import.meta as any).env.VITE_WS_BASE || "").replace(/\/$/, "");
 const OVERLAYS_STORAGE_PREFIX = "rtsp-overlays";
+const overlayAvailability = new Map<string, "UNKNOWN" | "LOADING" | "MISSING" | "AVAILABLE">();
 
-function overlayStorageKey(cameraId: string) {
+function overlaysStorageKey(cameraId: string) {
   return `${OVERLAYS_STORAGE_PREFIX}::${cameraId}`;
 }
 
@@ -87,40 +88,53 @@ export default function RTSPMonitor() {
 
   // --- API calls: load/save overlays ---
   async function loadOverlays(camId: string) {
-    const fallbackJson = localStorage.getItem(overlayStorageKey(camId));
+    const fallbackJson = localStorage.getItem(overlaysStorageKey(camId));
     if (fallbackJson) {
       try {
-        const localdata = JSON.parse(fallbackJson) as OverlayPayload;
-        setLines(localdata.lines || []);
+        const localData = JSON.parse(fallbackJson) as OverlayPayload;
+        setLines(localData.lines || []);
         setSelectedLineId(null);
         return;
       } catch {
-        localStorage.removeItem(overlayStorageKey(camId));
+        localStorage.removeItem(overlaysStorageKey(camId));
       }
     }
-    
-    if (!API_BASE) { 
+
+    const status = overlayAvailability.get(camId);
+    if (status === "MISSING" || status === "LOADING") {
       setLines([]);
       setSelectedLineId(null);
       return;
     }
 
-    // backend ควรมี: GET /api/cameras/{camera_id}/overlays
-    const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
-    const res = await fetch(url);
-    if (res.status === 404) {
+    if (!API_BASE) {
       setLines([]);
       setSelectedLineId(null);
       return;
     }
-    if (!res.ok) throw new Error(`Load overlays failed: ${res.status}`);
+
+    overlayAvailability.set(camId, "LOADING");
+    // backend ควรมี: GET /api/cameras/{camera_id}/overlays
+    const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
+    const res = await fetch(url);
+    if (res.status === 404) {
+      overlayAvailability.set(camId, "MISSING");
+      setLines([]);
+      setSelectedLineId(null);
+      return;
+    }
+    if (!res.ok) {
+      overlayAvailability.set(camId, "UNKNOWN");
+      throw new Error(`Load overlays failed: ${res.status}`);
+    }
+    overlayAvailability.set(camId, "AVAILABLE");
     const data = (await res.json()) as OverlayPayload;
     setLines(data.lines || []);
     setSelectedLineId(null);
   }
 
   async function saveOverlays(camId: string, payloadLines: VirtualLine[]) {
-    localStorage.setItem(overlayStorageKey(camId), JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload));
+    localStorage.setItem(overlaysStorageKey(camId), JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload));
 
     if (!API_BASE) return;
     // backend ควรมี: PUT /api/cameras/{camera_id}/overlays
@@ -130,8 +144,12 @@ export default function RTSPMonitor() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
     });
-    if (res.status === 404) return;
+    if (res.status === 404) {
+      overlayAvailability.set(camId, "MISSING");
+      return; 
+    }
     if (!res.ok) throw new Error(`Save overlays failed: ${res.status}`);
+    overlayAvailability.set(camId, "AVAILABLE");
   }
 
   // load overlays when camera changes
