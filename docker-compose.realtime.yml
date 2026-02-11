@@ -136,7 +136,7 @@ services:
   # Producer สำหรับแต่ละกล้อง
   # Copy section นี้สำหรับกล้องเพิ่มเติม
   
-rtsp-producer-cam1:
+  rtsp-producer-cam1:
     build:
       context: ./worker
     environment:
@@ -224,6 +224,7 @@ rtsp-producer-cam1:
     networks:
       - alpr-network
     restart: unless-stopped
+
   # ตัวอย่างกล้องที่ 2 (uncomment เพื่อใช้งาน)
   # rtsp-producer-cam2:
   #   build:
