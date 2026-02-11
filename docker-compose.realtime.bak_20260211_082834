@@ -1,0 +1,284 @@
+services:
+  # ==================== Core Infrastructure ====================
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: alpr
+      POSTGRES_PASSWORD: alpr
+      POSTGRES_DB: alpr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alpr -d alpr -h 127.0.0.1 -p 5432"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks:
+      - alpr-network
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks:
+      - alpr-network
+
+  # ==================== Backend API ====================
+  backend:
+    build:
+      context: ./backend
+    user: "1000:1000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      CORS_ORIGINS: http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173
+    volumes:
+      - ./storage:/storage
+      - ./models:/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+
+  # ==================== Celery Workers ====================
+  # GPU Worker - สามารถ scale ได้ด้วย --scale worker-gpu-1=3
+  worker-gpu-1:
+    build:
+      context: ./worker
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    environment:
+      # TensorRT settings
+      TRT_WORKSPACE: "4096"
+      TRT_FP16: "1"
+      CUDA_VISIBLE_DEVICES: "0"
+      
+      # Database & Redis
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      
+      # Model settings
+      MODEL_PATH: /models/best.pt
+      DETECTOR_CONF: "0.35"
+      TRT_INPUT_W: "640"
+      TRT_INPUT_H: "640"
+      TRT_CONF_THRES: "0.35"
+      TRT_IOU_THRES: "0.45"
+      TRT_CLASS_ID: "0"
+      
+      # ALPR settings
+      MASTER_CONF_THRESHOLD: "0.95"
+      
+      # Celery settings (เพิ่ม concurrency สำหรับ RTSP load)
+      CELERY_WORKER_CONCURRENCY: "8"
+      CELERY_WORKER_PREFETCH: "16"
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: "200"
+      
+      # Performance
+      ULTRALYTICS_AUTOINSTALL: "false"
+      YOLO_VERBOSE: "false"
+    volumes:
+      - ./storage:/storage
+      - ./models:/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
+
+  # ==================== RTSP Producers ====================
+  # Producer สำหรับแต่ละกล้อง
+  # Copy section นี้สำหรับกล้องเพิ่มเติม
+  
+  rtsp-producer-cam1:
+    build:
+      context: ./worker
+    environment:
+      # Camera settings
+      CAMERA_ID: PCN_Lane4
+      RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+      
+      # Database & Redis
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      
+      # Frame capture settings
+      RTSP_TARGET_FPS: "2.0"
+      RTSP_RECONNECT_SEC: "2.0"
+      
+      # Filtering settings
+      RTSP_ENABLE_MOTION_FILTER: "true"
+      RTSP_MOTION_THRESHOLD: "5.0"
+      
+      RTSP_ENABLE_QUALITY_FILTER: "true"
+      RTSP_MIN_QUALITY_SCORE: "40.0"
+      
+      RTSP_ENABLE_DEDUP: "true"
+      RTSP_DEDUP_CACHE_SIZE: "50"
+      RTSP_DEDUP_THRESHOLD: "5"
+
+            # ===== Best Shot Buffer (ใหม่) =====
+      # ===== Quality Gate (ใหม่) =====
+      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "25.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "2.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "5.0"
+      RTSP_BESTSHOT_ENABLED: "true"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "1.5"
+      RTSP_BESTSHOT_MIN_FRAMES: "2"
+
+            # ===== ROI Zone (ใหม่) =====
+      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_X1: "0.05"     # ตัดขอบซ้าย 5%
+      RTSP_ROI_Y1: "0.15"     # ตัดฟ้า/หลังคา 15%
+      RTSP_ROI_X2: "0.95"     # ตัดขอบขวา 5%
+      RTSP_ROI_Y2: "0.90"     # ตัดพื้นถนนไกล 10%
+      
+    volumes:
+      - ./storage:/storage
+    # ✅ FIX: ใช้ array form + escape special chars
+    command:
+      - python
+      - -m
+      - alpr_worker.rtsp.frame_producer
+      - --camera-id
+      - PCN_Lane4
+      - --rtsp-url
+      - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
+      - --fps
+      - "2.0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
+
+  # ตัวอย่างกล้องที่ 2 (uncomment เพื่อใช้งาน)
+  # rtsp-producer-cam2:
+  #   build:
+  #     context: ./worker
+  #   environment:
+  #     CAMERA_ID: plaza2-lane2
+  #     RTSP_URL: rtsp://user:pass@192.168.1.101/stream
+  #     DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+  #     REDIS_URL: redis://redis:6379/0
+  #     STORAGE_DIR: /storage
+  #     RTSP_TARGET_FPS: "2.0"
+  #     RTSP_ENABLE_MOTION_FILTER: "true"
+  #     RTSP_MOTION_THRESHOLD: "5.0"
+  #     RTSP_ENABLE_QUALITY_FILTER: "true"
+  #     RTSP_MIN_QUALITY_SCORE: "40.0"
+  #     RTSP_ENABLE_DEDUP: "true"
+  #   volumes:
+  #     - ./storage:/storage
+  #   command: python -m alpr_worker.rtsp.frame_producer --camera-id plaza2-lane2 --rtsp-url $RTSP_URL --fps 2.0
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - alpr-network
+  #   restart: unless-stopped
+
+  # ==================== Monitoring ====================
+  flower:
+    image: mher/flower:2.0
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      # ===== Headlight Deglare (ใหม่) =====
+      DEGLARE_ENABLED: "true"
+      DEGLARE_SATURATION_THRESHOLD: "240"
+      DEGLARE_CLAHE_CLIP: "3.0"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - alpr-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - alpr-network
+
+  # ==================== Frontend ====================
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE: http://10.32.70.136:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - alpr-network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  alpr-network:
+    driver: bridge
+
+# ==================== Usage ====================
+# 1. Start core services:
+#    docker-compose -f docker-compose.realtime.yml up -d postgres redis backend
+#
+# 2. Start workers (scale as needed):
+#    docker-compose -f docker-compose.realtime.yml up -d --scale worker-gpu-1=2
+#
+# 3. Start RTSP producers:
+#    docker-compose -f docker-compose.realtime.yml up -d rtsp-producer-cam1
+#
+# 4. Monitor:
+#    Flower: http://localhost:5555
+#    Redis Commander: http://localhost:8081
+#    Backend API: http://localhost:8000/docs
+#
+# 5. Stop specific camera:
+#    curl -X POST http://localhost:8000/api/rtsp/stop -H "Content-Type: application/json" -d '{"camera_id":"plaza2-lane1"}'
+#
+# 6. View logs:
+#    docker-compose -f docker-compose.realtime.yml logs -f rtsp-producer-cam1
+#    docker-compose -f docker-compose.realtime.yml logs -f worker-gpu-1
