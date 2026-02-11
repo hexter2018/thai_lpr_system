@@ -276,12 +276,30 @@ class PlateOCR:
         up2_adaptive = cv2.resize(adaptive, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
         up2_otsu = cv2.resize(otsu, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_NEAREST)
 
+        # Green plate mask
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         lower_green = np.array([35, 40, 40])
         upper_green = np.array([85, 255, 255])
         green_mask = cv2.inRange(hsv, lower_green, upper_green)
         green_inv = cv2.bitwise_not(green_mask)
 
+        # Yellow plate mask (แท็กซี่, รถสาธารณะ)
+        lower_yellow = np.array([18, 80, 120])
+        upper_yellow = np.array([35, 255, 255])
+        yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+        yellow_area = cv2.countNonZero(yellow_mask)
+        is_yellow_plate = yellow_area > (h * w * 0.15)
+        if is_yellow_plate:
+            # สำหรับป้ายเหลือง: แปลงเป็น grayscale แล้ว invert
+            # เพราะตัวอักษรดำบนพื้นเหลือง
+            yellow_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            yellow_inv = cv2.bitwise_not(yellow_gray)
+            yellow_clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(yellow_inv)
+            yellow_thresh = cv2.threshold(yellow_inv, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        else:
+            yellow_clahe = gray  # fallback — ไม่เพิ่ม variant ถ้าไม่ใช่ป้ายเหลือง
+            yellow_thresh = gray
+            
         up3 = cv2.resize(clahe, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
         up4 = cv2.resize(clahe, None, fx=4.0, fy=4.0, interpolation=cv2.INTER_CUBIC)
         up4_sharp = cv2.filter2D(up4, -1, np.array([[0,-1,0],[-1,5,-1],[0,-1,0]], dtype=np.float32))
@@ -309,6 +327,8 @@ class PlateOCR:
             ("sharpen", sharpened),
             ("bilateral_clahe", bilateral_clahe),
             ("morph_close", morph_close),
+            ("yellow_clahe", yellow_clahe),
+            ("yellow_thresh", yellow_thresh),
             ("upscale_x2", up2),
             ("upscale_adaptive_x2", up2_adaptive),
             ("upscale_otsu_x2", up2_otsu),

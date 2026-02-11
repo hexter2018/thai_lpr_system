@@ -165,23 +165,24 @@ services:
       RTSP_DEDUP_CACHE_SIZE: "50"
       RTSP_DEDUP_THRESHOLD: "5"
 
-            # ===== Best Shot Buffer (ใหม่) =====
-      # ===== Quality Gate (ใหม่) =====
+      # ===== Quality Gate (ปรับสำหรับป้ายเหลือง+ขาว) =====
       QUALITY_GATE_ENABLED: "true"
-      QUALITY_GATE_MIN_PLATE_CONTRAST: "25.0"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "28.0"
       QUALITY_GATE_MAX_GLARE_PCT: "2.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "5.0"
+
+      # ===== Best Shot Buffer (ปรับ window ให้รอนานขึ้น) =====
       RTSP_BESTSHOT_ENABLED: "true"
-      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
-      RTSP_BESTSHOT_GAP_SEC: "1.5"
+      RTSP_BESTSHOT_WINDOW_SEC: "4.0"
+      RTSP_BESTSHOT_GAP_SEC: "2.0"
       RTSP_BESTSHOT_MIN_FRAMES: "2"
 
-            # ===== ROI Zone (ใหม่) =====
+      # ===== ROI Zone (ปรับจากภาพ PCN-MM04 แท็กซี่) =====
       RTSP_ROI_ENABLED: "true"
-      RTSP_ROI_X1: "0.05"     # ตัดขอบซ้าย 5%
-      RTSP_ROI_Y1: "0.15"     # ตัดฟ้า/หลังคา 15%
-      RTSP_ROI_X2: "0.95"     # ตัดขอบขวา 5%
-      RTSP_ROI_Y2: "0.90"     # ตัดพื้นถนนไกล 10%
+      RTSP_ROI_X1: "0.10"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.75"
+      RTSP_ROI_Y2: "0.92"
       
     volumes:
       - ./storage:/storage
