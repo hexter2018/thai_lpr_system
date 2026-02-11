@@ -21,10 +21,27 @@ def _latest_jpg(camera_id: str) -> Path | None:
     stream_dir = _camera_stream_dir(camera_id)
     if not stream_dir.exists() or not stream_dir.is_dir():
         return None
-    images = [p for p in stream_dir.glob("*.jpg") if p.is_file()]
-    if not images:
+
+    latest: Path | None = None
+    latest_mtime_ns = -1
+    for image_path in stream_dir.glob("*.jpg"):
+        try:
+            stat = image_path.stat()
+        except FileNotFoundError:
+            # Writer/worker can rotate temporary files while we're scanning.
+            continue
+
+        if not image_path.is_file():
+            continue
+
+        if stat.st_mtime_ns > latest_mtime_ns:
+            latest = image_path
+            latest_mtime_ns = stat.st_mtime_ns
+
+    if latest is None:
         return None
-    return max(images, key=lambda p: p.stat().st_mtime)
+
+    return latest
 
 def _redis() -> Redis:
     return Redis.from_url(settings.redis_url)
@@ -65,13 +82,24 @@ def stream_mjpeg(camera_id: str):
                 time.sleep(0.2)
                 continue
 
-            stat = frame_path.stat()
+            try:
+                stat = frame_path.stat()
+            except FileNotFoundError:
+                # File disappeared between lookup and stat; try the next frame.
+                time.sleep(0.05)
+                continue
+
             if stat.st_mtime_ns == last_mtime_ns:
                 time.sleep(0.08)
                 continue
 
-            with frame_path.open("rb") as f:
-                jpg = f.read()
+            try:
+                with frame_path.open("rb") as f:
+                    jpg = f.read()
+            except FileNotFoundError:
+                # File disappeared between stat and open; try the next frame.
+                time.sleep(0.05)
+                continue
 
             last_mtime_ns = stat.st_mtime_ns
             yield b"--" + boundary + b"\r\n"
