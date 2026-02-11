@@ -33,15 +33,12 @@ type WsPayload = {
 };
 
 const API_BASE = (import.meta as any).env.VITE_API_BASE?.replace(/\/$/, "") || "";
-const WS_BASE = (() => {
-  // แปลง http(s) -> ws(s)
-  if (!API_BASE) return "";
-  return API_BASE.startsWith("https")
-    ? API_BASE.replace(/^https/, "wss")
-    : API_BASE.replace(/^http/, "ws");
-})();
+const WS_BASE = ((import.meta as any).env.VITE_WS_BASE || "").replace(/\/$/, "");
+const OVERLAYS_STORAGE_PREFIX = "rtsp-overlays";
 
-const missingOverlayCameras = new Set<string>();
+function overlayStorageKey(cameraId: string) {
+  return `${OVERLAYS_STORAGE_PREFIX}::${cameraId}`;
+}
 
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v));
@@ -90,7 +87,19 @@ export default function RTSPMonitor() {
 
   // --- API calls: load/save overlays ---
   async function loadOverlays(camId: string) {
-    if (missingOverlayCameras.has(camId)) {
+    const fallbackJson = localStorage.getItem(overlayStorageKey(camId));
+    if (fallbackJson) {
+      try {
+        const localdata = JSON.parse(fallbackJson) as OverlayPayload;
+        setLines(localdata.lines || []);
+        setSelectedLineId(null);
+        return;
+      } catch {
+        localStorage.removeItem(overlayStorageKey(camId));
+      }
+    }
+    
+    if (!API_BASE) { 
       setLines([]);
       setSelectedLineId(null);
       return;
@@ -100,7 +109,6 @@ export default function RTSPMonitor() {
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url);
     if (res.status === 404) {
-      missingOverlayCameras.add(camId);
       setLines([]);
       setSelectedLineId(null);
       return;
@@ -112,6 +120,9 @@ export default function RTSPMonitor() {
   }
 
   async function saveOverlays(camId: string, payloadLines: VirtualLine[]) {
+    localStorage.setItem(overlayStorageKey(camId), JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload));
+
+    if (!API_BASE) return;
     // backend ควรมี: PUT /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url, {
@@ -119,6 +130,7 @@ export default function RTSPMonitor() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
     });
+    if (res.status === 404) return;
     if (!res.ok) throw new Error(`Save overlays failed: ${res.status}`);
   }
 
@@ -132,7 +144,10 @@ export default function RTSPMonitor() {
 
   // --- WebSocket for boxes/ids ---
   useEffect(() => {
-    if (!WS_BASE) return;
+    if (!WS_BASE) {
+      setObjects([]);
+      return;
+    };
 
     // backend ควรมี: WS /ws/cameras/{camera_id}
     const wsUrl = `${WS_BASE}/ws/cameras/${encodeURIComponent(cameraId)}`;
