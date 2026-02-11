@@ -44,15 +44,33 @@ from alpr_worker.rtsp.line_trigger import VirtualLineTrigger, LineTriggerConfig
 from alpr_worker.celery_app import celery_app
 
 # Import night enhancement modules (optional)
+_NIGHT_ENHANCEMENT_IMPORT_ERRORS: Dict[str, str] = {}
+
 try:
     from alpr_worker.rtsp.quality_filter_v2 import EnhancedQualityScorer
-    from alpr_worker.rtsp.preprocessing import ImagePreprocessor
-    NIGHT_ENHANCEMENT_AVAILABLE = True
-except ImportError:
-    NIGHT_ENHANCEMENT_AVAILABLE = False
+    ENHANCED_SCORER_AVAILABLE = True
+except ImportError as exc:
     EnhancedQualityScorer = None
+    ENHANCED_SCORER_AVAILABLE = False
+    _NIGHT_ENHANCEMENT_IMPORT_ERRORS["quality_filter_v2"] = str(exc)
+
+try:
+    from alpr_worker.rtsp.preprocessing import ImagePreprocessor
+    PREPROCESSOR_AVAILABLE = True
+except ImportError as exc:
     ImagePreprocessor = None
-    logging.warning("Night enhancement modules not available (quality_filter_v2, preprocessing)")
+    PREPROCESSOR_AVAILABLE = False
+    _NIGHT_ENHANCEMENT_IMPORT_ERRORS["preprocessing"] = str(exc)
+
+NIGHT_ENHANCEMENT_AVAILABLE = ENHANCED_SCORER_AVAILABLE or PREPROCESSOR_AVAILABLE
+
+if _NIGHT_ENHANCEMENT_IMPORT_ERRORS:
+    logging.warning(
+        "Night enhancement modules unavailable: %s",
+        ", ".join(
+            f"{module} ({error})" for module, error in _NIGHT_ENHANCEMENT_IMPORT_ERRORS.items()
+        ),
+    )
 
 log = logging.getLogger(__name__)
 
@@ -84,8 +102,8 @@ class RTSPFrameProducer:
         self.config = config or RTSPConfig.from_env()
         
         # Night enhancement flags
-        self.enable_night_enhancement = enable_night_enhancement and NIGHT_ENHANCEMENT_AVAILABLE
-        self.enable_preprocessing = enable_preprocessing and NIGHT_ENHANCEMENT_AVAILABLE
+        self.enable_night_enhancement = enable_night_enhancement and ENHANCED_SCORER_AVAILABLE
+        self.enable_preprocessing = enable_preprocessing and PREPROCESSOR_AVAILABLE
         
         # Database
         self.engine = create_engine(self.config.database_url, pool_pre_ping=True)
@@ -535,8 +553,12 @@ def main():
     # Check night enhancement availability
     if not NIGHT_ENHANCEMENT_AVAILABLE:
         log.warning(
-            "Night enhancement modules not available. "
-            "To enable, ensure quality_filter_v2.py and preprocessing.py are in rtsp/ directory."
+            "Night enhancement modules unavailable. "
+            "Install/import errors: %s",
+            ", ".join(
+                f"{module} ({error})"
+                for module, error in _NIGHT_ENHANCEMENT_IMPORT_ERRORS.items()
+            )
         )
     
     # Create config
