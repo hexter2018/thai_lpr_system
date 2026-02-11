@@ -356,7 +356,7 @@ services:
       - alpr-network
     restart: unless-stopped
 
-    rtsp-producer-cam3:
+  rtsp-producer-cam3:
     build:
       context: ./worker
     environment:
