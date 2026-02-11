@@ -297,6 +297,40 @@ class PlateOCR:
         if self.variant_limit:
             variants = variants[: self.variant_limit]
         return variants
+    
+    def _deskew_plate(self, gray: np.ndarray) -> np.ndarray:
+        """Deskew a grayscale plate crop using the dominant contour angle.
+
+        Returns the original image when a stable angle cannot be estimated.
+        """
+        if gray.size == 0:
+            return gray
+
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return gray
+
+        contour = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(contour) < 0.05 * gray.shape[0] * gray.shape[1]:
+            return gray
+
+        rect = cv2.minAreaRect(contour)
+        angle = float(rect[-1])
+
+        # minAreaRect returns angles in [-90, 0): normalize to a small correction.
+        if angle < -45.0:
+            angle += 90.0
+        angle = max(min(angle, 30.0), -30.0)
+        if abs(angle) < 0.25:
+            return gray
+
+        h, w = gray.shape[:2]
+        center = (w / 2.0, h / 2.0)
+        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        return cv2.warpAffine(gray, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
     def _evaluate_variant(
         self,
