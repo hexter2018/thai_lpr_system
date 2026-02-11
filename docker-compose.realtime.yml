@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:16
     environment:
+      TZ: Asia/Bangkok
       POSTGRES_USER: alpr
       POSTGRES_PASSWORD: alpr
       POSTGRES_DB: alpr
@@ -21,6 +22,8 @@ services:
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    environment:
+      TZ: Asia/Bangkok
     ports:
       - "6379:6379"
     volumes:
@@ -39,6 +42,7 @@ services:
       context: ./backend
     user: "1000:1000"
     environment:
+      TZ: Asia/Bangkok
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -69,6 +73,7 @@ services:
               device_ids: ['0']
               capabilities: [gpu]
     environment:
+      TZ: Asia/Bangkok
       # TensorRT settings
       TRT_WORKSPACE: "4096"
       TRT_FP16: "1"
@@ -124,6 +129,7 @@ services:
     build:
       context: ./worker
     environment:
+      TZ: Asia/Bangkok
       # Camera settings
       CAMERA_ID: PCN_Lane4
       RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp

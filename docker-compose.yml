@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     environment:
+      TZ: Asia/Bangkok
       POSTGRES_USER: alpr
       POSTGRES_PASSWORD: alpr
       POSTGRES_DB: alpr
@@ -17,6 +18,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    environment:
+      TZ: Asia/Bangkok
     ports:
       - "6379:6379"
 
@@ -25,6 +28,7 @@ services:
       context: ./backend
     user: "1000:1000"
     environment:
+      TIMEZONE: Asia/Bangkok
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -45,6 +49,7 @@ services:
       context: ./worker
     gpus: all
     environment:
+      TZ: Asia/Bangkok
       TRT_WORKSPACE: "4096"
       TRT_FP16: "1"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
@@ -77,6 +82,7 @@ services:
     build:
       context: ./frontend
     environment:
+      TZ: Asia/Bangkok
       VITE_API_BASE: http://10.32.70.136:8000
     ports:
       - "5173:5173"
