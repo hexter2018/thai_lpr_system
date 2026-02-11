@@ -253,7 +253,9 @@ services:
     build:
       context: ./frontend
     environment:
+      TZ: Asia/Bangkok
       VITE_API_BASE: http://10.32.70.136:8000
+      VITE_ENABLE_MJPEG_STREAM: "true"
     ports:
       - "5173:5173"
     depends_on:
