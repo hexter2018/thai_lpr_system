@@ -63,6 +63,9 @@ export default function RTSPMonitor() {
   // --- Camera selection ---
   const [cameraId, setCameraId] = useState("PCN_Lane4");
 
+  const [streamLoadFailed, setStreamLoadFailed] = useState(false);
+  const [streamAttempt, setStreamAttempt] = useState(0);
+
   // --- Stream URL (MJPEG) ---
   const mjpegUrl = useMemo(() => {
     // backend ควรมี: GET /api/streams/{camera_id}/mjpeg
@@ -91,8 +94,6 @@ export default function RTSPMonitor() {
   const [showBoxes, setShowBoxes] = useState(true);
   const [showIds, setShowIds] = useState(true);
   const [showSpeed, setShowSpeed] = useState(true);
-  const [streamLoadFailed, setStreamLoadFailed] = useState(false);
-  const [streamAttempt, setStreamAttempt] = useState(0);
 
   useEffect(() => {
     setStreamLoadFailed(false);
