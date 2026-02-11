@@ -35,10 +35,12 @@ type WsPayload = {
 const API_BASE = (import.meta as any).env.VITE_API_BASE?.replace(/\/$/, "") || "";
 const WS_BASE = ((import.meta as any).env.VITE_WS_BASE || "").replace(/\/$/, "");
 const OVERLAYS_STORAGE_PREFIX = "rtsp-overlays";
+const ENABLE_MJPEG_STREAM = ((import.meta as any).env.VITE_ENABLE_MJPEG_STREAM || "").toLowerCase() === "true";
+const ENABLE_OVERLAY_API = ((import.meta as any).env.VITE_ENABLE_OVERLAY_API || "").toLowerCase() === "true";
 const overlayAvailability = new Map<string, "UNKNOWN" | "LOADING" | "MISSING" | "AVAILABLE">();
 
 function overlaysStorageKey(cameraId: string) {
-  return `${OVERLAYS_STORAGE_PREFIX}::${cameraId}`;
+  return `${OVERLAYS_STORAGE_PREFIX}:${cameraId}`;
 }
 
 function clamp01(v: number) {
@@ -62,6 +64,7 @@ export default function RTSPMonitor() {
   // --- Stream URL (MJPEG) ---
   const mjpegUrl = useMemo(() => {
     // backend ควรมี: GET /api/streams/{camera_id}/mjpeg
+    if (!ENABLE_MJPEG_STREAM || !API_BASE) return "";
     return `${API_BASE}/api/streams/${encodeURIComponent(cameraId)}/mjpeg`;
   }, [cameraId]);
 
@@ -107,7 +110,7 @@ export default function RTSPMonitor() {
       return;
     }
 
-    if (!API_BASE) {
+    if (!API_BASE || !ENABLE_OVERLAY_API) {
       setLines([]);
       setSelectedLineId(null);
       return;
@@ -134,9 +137,13 @@ export default function RTSPMonitor() {
   }
 
   async function saveOverlays(camId: string, payloadLines: VirtualLine[]) {
-    localStorage.setItem(overlaysStorageKey(camId), JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload));
+    localStorage.setItem(
+      overlaysStorageKey(camId), 
+      JSON.stringify({ camera_id: camId, lines: payloadLines } satisfies OverlayPayload),
+    );
 
-    if (!API_BASE) return;
+    if (!API_BASE || !ENABLE_OVERLAY_API) return;
+
     // backend ควรมี: PUT /api/cameras/{camera_id}/overlays
     const url = `${API_BASE}/api/cameras/${encodeURIComponent(camId)}/overlays`;
     const res = await fetch(url, {
@@ -476,13 +483,30 @@ export default function RTSPMonitor() {
         </div>
 
         <div style={{ position: "relative" }}>
-          <img
-            ref={imgRef}
-            src={mjpegUrl}
-            alt="rtsp"
-            onLoad={onImgLoad}
-            style={{ width: "100%", display: "block" }}
-          />
+          {mjpegUrl ? (
+            <img
+              ref={imgRef}
+              src={mjpegUrl}
+              alt="rtsp"
+              onLoad={onImgLoad}
+              style={{ width: "100%", display: "block" }}
+            />
+          ) : (
+            <div
+              style={{
+                minHeight: 360,
+                display: "grid",
+                placeItems: "center",
+                color: "#bbb",
+                fontSize: 14,
+                padding: 16,
+                textAlign: "center",
+              }}
+            >
+              MJPEG stream is disabled. Set <code>VITE_ENABLE_MJPEG_STREAM=true</code> when backend supports
+              <code> /api/streams/{'{camera_id}'}/mjpeg</code>.
+            </div>
+          )}
 
           <canvas
             ref={canvasRef}
