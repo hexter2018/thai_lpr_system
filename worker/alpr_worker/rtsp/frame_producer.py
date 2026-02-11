@@ -40,6 +40,7 @@ from alpr_worker.rtsp.quality_filter import MotionDetector, QualityScorer, Frame
 from alpr_worker.rtsp.best_shot import BestShotBuffer, FrameCandidate
 from alpr_worker.rtsp.quality_gate import QualityGate
 from alpr_worker.rtsp.config import RTSPConfig
+from alpr_worker.rtsp.line_trigger import VirtualLineTrigger, LineTriggerConfig
 from alpr_worker.celery_app import celery_app
 
 # Import night enhancement modules (optional)
@@ -107,6 +108,7 @@ class RTSPFrameProducer:
             "frames_dropped_motion": 0,
             "frames_dropped_quality": 0,
             "frames_dropped_duplicate": 0,
+            "frames_dropped_line": 0,
             "frames_enhanced": 0,
             "frames_preprocessed": 0,
             "frames_enqueued": 0,
@@ -121,6 +123,10 @@ class RTSPFrameProducer:
         self.quality_gate = QualityGate()
         self.best_shot_buffer = BestShotBuffer()
         
+
+        # Optional virtual line trigger
+        self.line_trigger = VirtualLineTrigger(LineTriggerConfig.from_env())
+        
         # State
         self.cap: Optional[cv2.VideoCapture] = None
         self.running = False
@@ -134,6 +140,12 @@ class RTSPFrameProducer:
         log.info(f"RTSP Producer initialized for {camera_id}")
         log.info(f"Night enhancement: {self.enable_night_enhancement}")
         log.info(f"Preprocessing: {self.enable_preprocessing}")
+        if self.line_trigger.enabled:
+            cfg = self.line_trigger.config
+            log.info(
+                "Virtual line trigger enabled: (%.2f, %.2f)->(%.2f, %.2f), direction=%s, band=%spx",
+                cfg.x1, cfg.y1, cfg.x2, cfg.y2, cfg.direction, cfg.band_px
+            )        
     
     def _setup_filters(self):
         """Setup quality filters with optional night enhancement"""
@@ -396,6 +408,10 @@ class RTSPFrameProducer:
                 continue
             self.last_frame_time = now
             
+            if self.line_trigger.enabled and not self.line_trigger.check(frame, now):
+                self.stats["frames_dropped_line"] += 1
+                continue
+        
             # Process frame through filters
             should_process, enhanced_frame, metadata = self._process_frame(frame)
             if not should_process:

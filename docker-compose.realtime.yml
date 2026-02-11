@@ -187,11 +187,22 @@ rtsp-producer-cam1:
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
       # ===== ROI: ปรับจากภาพ PCN-MM04 =====
-      RTSP_ROI_ENABLED: "true"
-      RTSP_ROI_X1: "0.10"
-      RTSP_ROI_Y1: "0.30"
-      RTSP_ROI_X2: "0.75"
-      RTSP_ROI_Y2: "0.92"
+#      RTSP_ROI_ENABLED: "true"
+#      RTSP_ROI_X1: "0.10"
+#      RTSP_ROI_Y1: "0.30"
+#      RTSP_ROI_X2: "0.75"
+#      RTSP_ROI_Y2: "0.92"
+
+      # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
+      RTSP_LINE_ENABLED: "true"
+      RTSP_LINE_X1: "0.27"
+      RTSP_LINE_Y1: "0.45"
+      RTSP_LINE_X2: "0.80"
+      RTSP_LINE_Y2: "0.45"
+      RTSP_LINE_DIRECTION: "down"
+      RTSP_LINE_BAND_PX: "40"
+      RTSP_LINE_MIN_AREA_PX: "1500"
+      RTSP_LINE_COOLDOWN_SEC: "1.2"
       
     volumes:
       - ./storage:/storage
