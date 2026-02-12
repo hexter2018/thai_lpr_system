@@ -71,7 +71,9 @@ function ImageViewer({ open, src, title, onClose }) {
       if (e.key === 'Escape') onClose()
       if (e.key === '+' || e.key === '=') setScale(s => Math.min(4, s + 0.2))
       if (e.key === '-') setScale(s => Math.max(0.5, s - 0.2))
-      if (e.key === '0') { setScale(1);
+      if (e.key === '0') { 
+        setScale(1)
+      }
     }
     
     window.addEventListener('keydown', handleKey)
