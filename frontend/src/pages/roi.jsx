@@ -67,19 +67,6 @@ async function fetchRoi(cameraId) {
   }
 }
 
-async function fetchRecentActivity(cameraId, limit = 50) {
-  try {
-    const params = new URLSearchParams({ limit: String(limit), camera_id: cameraId });
-    const res = await fetch(`${API_BASE}/api/reports/activity?${params.toString()}`);
-    if (!res.ok) throw new Error(`${res.status}`);
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    console.warn("fetchRecentActivity failed:", e);
-    return [];
-  }
-}
-
 async function saveRoi(cameraId, roi) {
   try {
     const res = await fetch(`${API_BASE}/api/roi-agent/config/${cameraId}`, {
@@ -360,47 +347,6 @@ export default function ROIDashboard() {
 
     trackStateRef.current = nextTrackState;
   }, [trackedObjects, triggerLine, streamMode, captureRawFrame]);
-
-// ── Poll latest car IDs and keep first snapshot per ID ──
-  useEffect(() => {
-    if (!selectedCam) return;
-
-    let active = true;
-    const poll = async () => {
-      const rows = await fetchRecentActivity(selectedCam, 100);
-      if (!active) return;
-
-      const normalized = rows
-        .filter((r) => r?.camera_id === selectedCam)
-        .map((r) => ({
-          id: String(r.id),
-          plate: r.plate_text || "UNKNOWN",
-          confidence: Number(r.confidence || 0),
-          created_at: r.created_at,
-          crop_url: r.crop_url || null,
-        }));
-
-      setRecentCars(normalized.slice(0, 20));
-
-      setCapturedCars((prev) => {
-        const next = { ...prev };
-        for (const row of normalized) {
-          if (!seenCarIdsRef.current.has(row.id) && row.crop_url) {
-            seenCarIdsRef.current.add(row.id);
-            next[row.id] = row;
-          }
-        }
-        return next;
-      });
-    };
-
-    poll();
-    const timer = setInterval(poll, 2000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [selectedCam]);
 
   // ── Handle video stream errors ──
   useEffect(() => {
