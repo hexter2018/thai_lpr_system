@@ -1,23 +1,3 @@
-"""
-roi_api.py — FastAPI Router สำหรับ ROI Agent Dashboard
-========================================================
-
-Safety:
-  - Feature flag: ROI_API_ENABLED=false ปิดทั้ง router
-  - ROI validation: range, area, width, height
-  - Rate limit: POST max 10/min per camera
-  - History: เก็บ 10 versions → rollback ได้
-  - SSRF protection: camera_id ต้องอยู่ใน config
-  - Snapshot timeout: ffmpeg 10s
-  - RTSP credentials masked ใน response
-
-Deploy:
-  1. Copy → backend/app/api/routers/roi_api.py
-  2. main.py เพิ่ม:
-       from app.api.routers.roi_api import router as roi_router
-       app.include_router(roi_router)
-"""
-
 import json
 import logging
 import os
@@ -27,7 +7,7 @@ import time
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, field_validator
 
 log = logging.getLogger(__name__)
@@ -217,6 +197,61 @@ def _snapshot_unavailable_svg(camera_id: str, width: int, reason: str) -> bytes:
 </svg>"""
     return svg.encode("utf-8")
 
+
+def _iter_rtsp_mjpeg_ffmpeg(rtsp_url: str, width: int):
+    cmd = [
+        "ffmpeg",
+        "-rtsp_transport", "tcp",
+        "-fflags", "nobuffer",
+        "-flags", "low_delay",
+        "-i", rtsp_url,
+        "-vf", f"scale={width}:-1",
+        "-an",
+        "-c:v", "mjpeg",
+        "-q:v", "6",
+        "-f", "image2pipe",
+        "-"
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+
+    try:
+        if proc.stdout is None:
+            raise HTTPException(500, "Cannot open ffmpeg output")
+
+        buffer = b""
+        while True:
+            chunk = proc.stdout.read(8192)
+            if not chunk:
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.02)
+                continue
+
+            buffer += chunk
+            while True:
+                soi = buffer.find(b"\xff\xd8")
+                if soi < 0:
+                    buffer = buffer[-2:]
+                    break
+                eoi = buffer.find(b"\xff\xd9", soi + 2)
+                if eoi < 0:
+                    buffer = buffer[soi:]
+                    break
+
+                jpg = buffer[soi:eoi + 2]
+                buffer = buffer[eoi + 2:]
+
+                yield b"--frame\r\n"
+                yield b"Content-Type: image/jpeg\r\n"
+                yield f"Content-Length: {len(jpg)}\r\n\r\n".encode("ascii")
+                yield jpg
+                yield b"\r\n"
+    finally:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
 def _capture_snapshot_opencv(rtsp_url: str, width: int) -> bytes:
     try:
         import cv2
@@ -286,6 +321,26 @@ async def snapshot(camera_id: str, width: int = 1280):
         raise
     except Exception as e:
         raise HTTPException(500, str(e))  
+
+@router.get("/live/{camera_id}/mjpeg")
+async def live_stream(camera_id: str, width: int = 1280):
+    """Direct RTSP live stream (MJPEG) for ROI dashboard."""
+    _guard()
+    cameras = _get_cameras_config()
+    cam = next((c for c in cameras if c.get("id") == camera_id), None)
+    if not cam:
+        raise HTTPException(404, f"Camera '{camera_id}' not in config")
+
+    rtsp_url = cam.get("rtsp", "")
+    if not rtsp_url:
+        raise HTTPException(400, "No RTSP URL")
+
+    width = min(max(width, 320), 1920)
+    return StreamingResponse(
+        _iter_rtsp_mjpeg_ffmpeg(rtsp_url, width),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 @router.get("/config/{camera_id}", response_model=ROIConfig)
 async def get_roi(camera_id: str):

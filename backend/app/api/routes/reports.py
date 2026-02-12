@@ -141,6 +141,7 @@ def get_report_stats(
 def get_activity_log(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    camera_id: Optional[str] = Query(None),
     limit: int = Query(100, le=1000),
     db: Session = Depends(get_db)
 ):
@@ -153,7 +154,7 @@ def get_activity_log(
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
     
-    activities = db.query(
+    query = db.query(
         models.PlateRead.id,
         models.PlateRead.plate_text,
         models.PlateRead.province,
@@ -170,7 +171,11 @@ def get_activity_log(
     ).filter(
         models.PlateRead.created_at >= start_dt,
         models.PlateRead.created_at < end_dt
-    ).order_by(
+    )
+    
+    if camera_id:
+        query = query.filter(models.Capture.camera_id == camera_id)
+    activities = query.order_by(
         desc(models.PlateRead.created_at)
     ).limit(limit).all()
     

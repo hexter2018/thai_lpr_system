@@ -9,7 +9,7 @@ const API_BASE = (() => {
 
 const ENABLE_MJPEG_STREAM =
   String(import.meta.env.VITE_ENABLE_MJPEG_STREAM || "true").toLowerCase() === "true";
-  
+
 // ─── API FUNCTIONS ───────────────────────────────────────────
 function normalizeCamera(cam) {
   if (!cam || typeof cam !== "object") return null;
@@ -60,6 +60,19 @@ async function fetchRoi(cameraId) {
   } catch (e) {
     console.warn("fetchRoi failed:", e);
     return null;
+  }
+}
+
+async function fetchRecentActivity(cameraId, limit = 50) {
+  try {
+    const params = new URLSearchParams({ limit: String(limit), camera_id: cameraId });
+    const res = await fetch(`${API_BASE}/api/reports/activity?${params.toString()}`);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.warn("fetchRecentActivity failed:", e);
+    return [];
   }
 }
 
@@ -155,6 +168,9 @@ export default function ROIDashboard() {
   const [useMock, setUseMock] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [recentCars, setRecentCars] = useState([]);
+  const [capturedCars, setCapturedCars] = useState({});
+  const seenCarIdsRef = useRef(new Set());  
 
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
@@ -162,9 +178,17 @@ export default function ROIDashboard() {
   const [dragging, setDragging] = useState(null);
   const CANVAS_W = 960, CANVAS_H = 540;
 
-  // ── MJPEG Stream URL ──
-  const streamUrl = selectedCam && ENABLE_MJPEG_STREAM 
-    ? `${API_BASE}/api/streams/${encodeURIComponent(selectedCam)}/mjpeg`
+  const isDrawableSourceReady = useCallback((source) => {
+    if (!source) return false;
+    if (typeof source.readyState === "number") return source.readyState >= 2;
+    if (typeof source.complete === "boolean") return source.complete && source.naturalWidth > 0;
+    if (typeof source.videoWidth === "number") return source.videoWidth > 0;
+    return false;
+  }, []);
+
+  // ── MJPEG Stream URL (direct RTSP via ffmpeg) ──
+  const streamUrl = selectedCam && ENABLE_MJPEG_STREAM
+    ? `${API_BASE}/api/roi-agent/live/${encodeURIComponent(selectedCam)}/mjpeg`
     : null;
 
   // ── Load cameras on mount ──
@@ -195,10 +219,54 @@ export default function ROIDashboard() {
     setSnapshotError(null);
     setStreamError(null);
     setSaveResult(null);
+    setRecentCars([]);
+    setCapturedCars({});
+    seenCarIdsRef.current = new Set();
     (async () => {
       const data = await fetchRoi(selectedCam);
       if (data) { setRoi(data); setSavedRoi(data); }
     })();
+  }, [selectedCam]);
+
+// ── Poll latest car IDs and keep first snapshot per ID ──
+  useEffect(() => {
+    if (!selectedCam) return;
+
+    let active = true;
+    const poll = async () => {
+      const rows = await fetchRecentActivity(selectedCam, 100);
+      if (!active) return;
+
+      const normalized = rows
+        .filter((r) => r?.camera_id === selectedCam)
+        .map((r) => ({
+          id: String(r.id),
+          plate: r.plate_text || "UNKNOWN",
+          confidence: Number(r.confidence || 0),
+          created_at: r.created_at,
+          crop_url: r.crop_url || null,
+        }));
+
+      setRecentCars(normalized.slice(0, 20));
+
+      setCapturedCars((prev) => {
+        const next = { ...prev };
+        for (const row of normalized) {
+          if (!seenCarIdsRef.current.has(row.id) && row.crop_url) {
+            seenCarIdsRef.current.add(row.id);
+            next[row.id] = row;
+          }
+        }
+        return next;
+      });
+    };
+
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [selectedCam]);
 
   // ── Handle video stream errors ──
@@ -210,18 +278,18 @@ export default function ROIDashboard() {
       setStreamError("Stream not available. Camera may be offline or RTSP not started.");
     };
 
-    const handleLoadStart = () => {
+    const handleLoad = () => {
       setStreamError(null);
     };
 
     video.addEventListener("error", handleError);
-    video.addEventListener("loadstart", handleLoadStart);
+    video.addEventListener("load", handleLoad);
 
     return () => {
       video.removeEventListener("error", handleError);
-      video.removeEventListener("loadstart", handleLoadStart);
+      video.removeEventListener("load", handleLoad);
     };
-  }, [streamMode]);
+  }, [streamMode, streamUrl]);
 
   // ── Capture snapshot ──
   const captureSnapshot = useCallback(async () => {
@@ -273,7 +341,11 @@ export default function ROIDashboard() {
 
     // Draw video or image source
     const source = streamMode === "live" ? videoRef.current : imgRef.current;
-    if (source?.complete !== false && source?.readyState >= 2) {
+    const canDrawVideo =
+      source instanceof HTMLVideoElement && source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+    const canDrawImage = source instanceof HTMLImageElement && source.complete;
+
+    if (canDrawVideo || canDrawImage) {
       ctx.drawImage(source, 0, 0, W, H);
     } else {
       // Placeholder scene
@@ -366,6 +438,20 @@ export default function ROIDashboard() {
     ctx.fillText(now, W - 10, 18);
     ctx.textAlign = "left";
 
+    // Car IDs overlay
+    const hotCars = recentCars.slice(0, 4);
+    if (hotCars.length > 0) {
+      ctx.font = "bold 10px 'JetBrains Mono', monospace";
+      hotCars.forEach((car, idx) => {
+        const txt = `CAR ${car.id} · ${car.plate}`;
+        const y = 34 + idx * 14;
+        ctx.fillStyle = "rgba(37,99,235,0.14)";
+        ctx.fillRect(8, y - 10, Math.min(W - 16, txt.length * 7.5 + 10), 12);
+        ctx.fillStyle = "#93c5fd";
+        ctx.fillText(txt, 12, y);
+      });
+    }
+
     // Unsaved changes warning
     if (hasChanges) {
       ctx.fillStyle = "rgba(245,158,11,0.75)";
@@ -385,7 +471,7 @@ export default function ROIDashboard() {
       ctx.fillText("⏳ Capturing snapshot...", W / 2, H / 2);
       ctx.textAlign = "left";
     }
-  }, [roi, cameras, selectedCam, hasChanges, snapshotLoading, streamMode]);
+  }, [roi, cameras, selectedCam, hasChanges, snapshotLoading, streamMode, isDrawableSourceReady, recentCars]);
 
   useEffect(() => {
     const interval = setInterval(drawCanvas, streamMode === "live" ? 33 : 100); // 30fps for live, 10fps for snapshot
@@ -747,6 +833,58 @@ export default function ROIDashboard() {
               }}>
                 {saving ? "⏳ Saving..." : hasChanges ? "✓ Apply ROI" : "No Changes"}
               </button>
+            </div>
+          </div>
+
+          {/* Car IDs + one-shot snapshots */}
+          <div style={{
+            marginTop: 16,
+            background: C.card, borderRadius: 8, padding: 14,
+            border: `1px solid ${C.cardBorder}`
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              🚗 Live Car IDs (capture once per ID)
+            </div>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 10 }}>
+              แสดงรถล่าสุดจากกล้องนี้ และเก็บรูปครั้งแรกของแต่ละ Car ID เพียงครั้งเดียว
+            </div>
+
+            <div style={{ display: "grid", gap: 8, maxHeight: 220, overflowY: "auto", marginBottom: 12 }}>
+              {recentCars.length === 0 && <div style={{ color: C.dim, fontSize: 11 }}>ยังไม่พบรถใหม่</div>}
+              {recentCars.map(car => (
+                <div key={`recent-${car.id}-${car.created_at}`} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  border: `1px solid ${C.cardBorder}`, borderRadius: 6, padding: "6px 8px",
+                  background: "rgba(37,99,235,0.04)"
+                }}>
+                  <div style={{ fontSize: 11, color: C.text }}>
+                    <strong style={{ color: C.blueBright }}>Car ID {car.id}</strong> · {car.plate}
+                  </div>
+                  <div style={{ fontSize: 10, color: C.dim }}>
+                    {(car.confidence * 100).toFixed(0)}%
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+              {Object.values(capturedCars).length === 0 && (
+                <div style={{ color: C.dim, fontSize: 11 }}>ยังไม่มีภาพ snapshot ของ Car ID</div>
+              )}
+              {Object.values(capturedCars).map(car => (
+                <div key={`capture-${car.id}`} style={{
+                  border: `1px solid ${C.cardBorder}`, borderRadius: 6, overflow: "hidden", background: C.bg
+                }}>
+                  {car.crop_url ? (
+                    <img src={car.crop_url} alt={`car-${car.id}`} style={{ width: "100%", height: 72, objectFit: "cover", display: "block" }} />
+                  ) : (
+                    <div style={{ height: 72, display: "grid", placeItems: "center", color: C.dim, fontSize: 10 }}>no image</div>
+                  )}
+                  <div style={{ padding: 6, fontSize: 10, color: C.text, fontFamily: "monospace" }}>
+                    ID {car.id}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
