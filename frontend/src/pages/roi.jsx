@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 // ─── CONFIG ──────────────────────────────────────────────────
 // เปลี่ยน API_BASE เป็น URL ของ FastAPI server จริง
 const API_BASE = window.location.origin.includes("localhost")
-  ? "http://localhost:8000"
+  ? "http://10.32.70.136:8000"
   : window.location.origin;
 
 // ─── API FUNCTIONS ───────────────────────────────────────────

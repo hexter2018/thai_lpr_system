@@ -5,10 +5,8 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: 'chart' },
   { to: '/upload', label: 'Upload', icon: 'upload' },
   { to: '/queue', label: 'Verification', icon: 'queue' },
-  { to: '/master', label: 'Master', icon: 'db' },
-  { to: '/rtsp', label: 'RTSP', icon: 'cam' },
-  { to: "/rtspmonitor", label: "RTSP Monitor", icon: "cam" },
   { to: '/reports', label: 'Reports', icon: 'report' },
+  { to: '/master', label: 'Master', icon: 'db' },
 ]
 
 function Icon({ type }) {

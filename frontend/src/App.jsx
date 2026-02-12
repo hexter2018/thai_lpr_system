@@ -8,6 +8,7 @@ import Master from './pages/Master.jsx'
 import Rtsp from './pages/Rtsp.jsx'
 import Reports from './pages/Reports.jsx'
 import RTSPMonitor from "./pages/RTSPMonitor";
+import RoiAgent from "./pages/roi.jsx";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/reports" element={<Reports />} />
         <Route path="/rtsp" element={<Rtsp />} />
         <Route path="/rtspmonitor" element={<RTSPMonitor />} />
+        <Route path="/roi-agent" element={<RoiAgent />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
