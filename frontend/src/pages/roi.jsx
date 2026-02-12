@@ -298,12 +298,7 @@ export default function ROIDashboard() {
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
-          if (msg?.camera_id === selectedCam && Array.isArray(msg.objects)) {
-            const cleaned = msg.objects.filter((obj) =>
-              obj && typeof obj.track_id !== "undefined" && Array.isArray(obj.bbox) && obj.bbox.length === 4
-            );
-            setTrackedObjects(cleaned);
-          }
+        setTrackedObjects(extractTrackedObjects(msg, selectedCam));
         } catch (_) {}
       };
     };
@@ -320,6 +315,14 @@ export default function ROIDashboard() {
 
   const captureRawFrame = useCallback(() => {
     const source = streamMode === "live" ? videoRef.current : imgRef.current;
+    const liveCanvas = canvasRef.current;
+    if (!source && liveCanvas) {
+      try {
+        return liveCanvas.toDataURL("image/jpeg", 0.9);
+      } catch (_) {
+        return null;
+      }
+    }
     if (!source) return null;
 
     const canvas = document.createElement("canvas");
@@ -331,7 +334,16 @@ export default function ROIDashboard() {
     const canDrawVideo =
       source instanceof HTMLVideoElement && source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
     const canDrawImage = source instanceof HTMLImageElement && source.complete;
-    if (!canDrawVideo && !canDrawImage) return null;
+    if (!canDrawVideo && !canDrawImage) {
+      if (liveCanvas) {
+        try {
+          return liveCanvas.toDataURL("image/jpeg", 0.9);
+        } catch (_) {
+          return null;
+        }
+      }
+      return null;
+    }
 
     ctx.drawImage(source, 0, 0, CANVAS_W, CANVAS_H);
     return canvas.toDataURL("image/jpeg", 0.9);
@@ -366,6 +378,7 @@ export default function ROIDashboard() {
         setCapturedTracks((old) => {
           if (old[key]) return old;
           const snapshot = captureRawFrame();
+          if (!snapshot) return old;
           const next = {
             ...old,
             [key]: {
