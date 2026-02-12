@@ -8,8 +8,8 @@ const API_BASE = (() => {
 })();
 
 const ENABLE_MJPEG_STREAM =
-  ((import.meta as any).env.VITE_ENABLE_MJPEG_STREAM || "true").toLowerCase() === "true";
-
+  String(import.meta.env.VITE_ENABLE_MJPEG_STREAM || "true").toLowerCase() === "true";
+  
 // ─── API FUNCTIONS ───────────────────────────────────────────
 function normalizeCamera(cam) {
   if (!cam || typeof cam !== "object") return null;
