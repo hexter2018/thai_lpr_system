@@ -608,20 +608,6 @@ export default function ROIDashboard() {
     ctx.font = "bold 10px 'JetBrains Mono', monospace";
     ctx.fillText("TRIGGER LINE", l1x + 8, l1y - 8);
 
-    // Car IDs overlay
-    const hotCars = recentCars.slice(0, 4);
-    if (hotCars.length > 0) {
-      ctx.font = "bold 10px 'JetBrains Mono', monospace";
-      hotCars.forEach((car, idx) => {
-        const txt = `CAR ${car.id} · ${car.plate}`;
-        const y = 34 + idx * 14;
-        ctx.fillStyle = "rgba(37,99,235,0.14)";
-        ctx.fillRect(8, y - 10, Math.min(W - 16, txt.length * 7.5 + 10), 12);
-        ctx.fillStyle = "#93c5fd";
-        ctx.fillText(txt, 12, y);
-      });
-    }
-
     // Unsaved changes warning
     if (hasChanges) {
       ctx.fillStyle = "rgba(245,158,11,0.75)";

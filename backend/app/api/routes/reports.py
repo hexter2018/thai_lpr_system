@@ -20,7 +20,6 @@ def get_report_stats(
     end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     province: Optional[str] = Query(None),
     camera_id: Optional[str] = Query(None),
-    since_ts: Optional[str] = Query(None, description="ISO timestamp filter (inclusive)"),
     db: Session = Depends(get_db)
 ):
     """Get statistics for reports with optional filters"""
@@ -143,6 +142,7 @@ def get_activity_log(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     camera_id: Optional[str] = Query(None),
+    since_ts: Optional[str] = Query(None, description="ISO timestamp filter (inclusive)"),
     limit: int = Query(100, le=1000),
     db: Session = Depends(get_db)
 ):
