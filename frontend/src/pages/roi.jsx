@@ -1,16 +1,32 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── CONFIG ──────────────────────────────────────────────────
-const API_BASE = window.location.origin.includes("localhost")
-  ? "http://10.32.70.136:8000"
-  : window.location.origin;
+const API_BASE = (() => {
+  const configured = (import.meta.env.VITE_API_BASE || "").trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return window.location.origin.replace(/\/$/, "");
+})();
 
 // ─── API FUNCTIONS ───────────────────────────────────────────
+function normalizeCamera(cam) {
+  if (!cam || typeof cam !== "object") return null;
+  const id = cam.id || cam.camera_id;
+  if (!id) return null;
+  return {
+    ...cam,
+    id,
+    name: cam.name || id,
+    status: cam.status || "unknown",
+  };
+}
+
 async function fetchCameras() {
   try {
     const res = await fetch(`${API_BASE}/api/roi-agent/cameras`);
     if (!res.ok) throw new Error(`${res.status}`);
-    return await res.json();
+        const raw = await res.json();
+    if (!Array.isArray(raw)) return null;
+    return raw.map(normalizeCamera).filter(Boolean);
   } catch (e) {
     console.warn("fetchCameras failed:", e);
     return null;
