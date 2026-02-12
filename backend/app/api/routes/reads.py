@@ -20,10 +20,14 @@ def list_pending(limit: int = 100, db: Session = Depends(get_db)):
         .join(models.Capture, models.Detection.capture_id == models.Capture.id)
         .filter(models.PlateRead.status == models.ReadStatus.PENDING)
         .order_by(desc(models.PlateRead.created_at))
-        .limit(limit)
     )
     out = []
+    seen_keys: set[tuple[str, str]] = set()
     for r in q.all():
+        dedupe_key = ((r.plate_text_norm or '').strip(), (r.province or '').strip())
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
         det = r.detection
         cap = det.capture
         out.append(ReadOut(
@@ -37,6 +41,8 @@ def list_pending(limit: int = 100, db: Session = Depends(get_db)):
             crop_url=make_image_url(det.crop_path),
             original_url=make_image_url(cap.original_path),
         ))
+        if len(out) >= limit:
+            break
     return out
 
 @router.post("/reads/{read_id}/verify")

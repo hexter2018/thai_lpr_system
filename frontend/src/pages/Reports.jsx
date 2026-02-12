@@ -44,7 +44,12 @@ export default function Reports() {
         setActivity(actData)
       }
 
-      const accRes = await fetch(`${API_BASE}/api/reports/accuracy?days=7`)
+      const accParams = new URLSearchParams()
+      if (startDate) accParams.append('start_date', startDate)
+      if (endDate) accParams.append('end_date', endDate)
+      if (province) accParams.append('province', province)
+      if (cameraId) accParams.append('camera_id', cameraId)
+      const accRes = await fetch(`${API_BASE}/api/reports/accuracy?${accParams}`)
       if (accRes.ok) {
         const accData = await accRes.json()
         setAccuracy(accData)

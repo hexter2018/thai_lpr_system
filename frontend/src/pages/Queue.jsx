@@ -62,6 +62,8 @@ function ToastContainer({ toasts }) {
 function ImageViewer({ open, src, title, onClose }) {
   const [scale, setScale] = useState(1)
   const [position, setPosition] = useState({ x: 0, y: 0 })
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, x: 0, y: 0 })
 
   useEffect(() => {
@@ -82,6 +84,8 @@ function ImageViewer({ open, src, title, onClose }) {
     if (open) {
       setScale(1)
       setPosition({ x: 0, y: 0 })
+      setLoading(true)
+      setFailed(false)
     }
   }, [open, src])
 
@@ -152,7 +156,13 @@ function ImageViewer({ open, src, title, onClose }) {
 
       {/* Image Container */}
       <div className="flex-1 overflow-hidden" onWheel={handleWheel}>
-        <div className="flex h-full w-full items-center justify-center p-8">
+        <div className="relative flex h-full w-full items-center justify-center p-8">
+          {loading && !failed && (
+            <div className="absolute z-10 rounded-xl bg-slate-900/70 px-4 py-2 text-sm text-slate-200">กำลังโหลดรูป...</div>
+          )}
+          {failed && (
+            <div className="absolute z-10 rounded-xl bg-rose-950/70 px-4 py-2 text-sm text-rose-200">โหลดรูปไม่สำเร็จ</div>
+          )}
           <img
             src={src}
             alt={title}
@@ -163,6 +173,8 @@ function ImageViewer({ open, src, title, onClose }) {
               transition: dragState.current.dragging ? 'none' : 'transform 0.1s ease-out'
             }}
             onMouseDown={handleMouseDown}
+            onLoad={() => setLoading(false)}
+            onError={() => { setLoading(false); setFailed(true) }}
             draggable={false}
           />
         </div>
@@ -213,7 +225,7 @@ function DeleteConfirmModal({ open, onClose, onConfirm, plate, province, confide
 }
 
 /* ===== VERIFICATION ITEM ===== */
-function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast }) {
+function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast, hotkeyEnabled = false }) {
   const [plateText, setPlateText] = useState(item.plate_text || '')
   const [province, setProvince] = useState(item.province || '')
   const [note, setNote] = useState('')
@@ -253,9 +265,10 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast 
   }, [busy, plateText, province, note, onConfirm, onCorrect])
 
   useEffect(() => {
+    if (!hotkeyEnabled) return
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
+  }, [handleKeyDown, hotkeyEnabled])
 
   const applyFix = (from, to) => {
     const next = plateText.replace(new RegExp(from, 'g'), to)
@@ -295,7 +308,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast 
   return (
     <>
       <Card className="p-5">
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[600px_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[520px_minmax(0,1fr)]">
           {/* Left: Image Evidence */}
           <div>
             <CardHeader className="px-0 pt-0">
@@ -314,7 +327,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast 
                   <img
                     src={absImageUrl(item.original_url)}
                     alt="Original"
-                    className="w-full h-44 object-contain bg-slate-950/40"
+                    className="w-full h-36 object-contain bg-slate-950/40"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
                     <Badge variant="primary" size="sm">
@@ -337,7 +350,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast 
                   <img
                     src={absImageUrl(item.crop_url)}
                     alt="Cropped Plate"
-                    className="w-full h-44 object-contain bg-slate-950/40"
+                    className="w-full h-36 object-contain bg-slate-950/40"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-3">
                     <Badge variant="primary" size="sm">
@@ -472,7 +485,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast 
             </div>
 
             {/* Action Buttons */}
-            <div className="mt-6 pt-4 border-t border-slate-700/50">
+            <div className="mt-4 pt-3 border-t border-slate-700/50">
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="primary"
@@ -541,8 +554,8 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast 
           setDeleteOpen(false)
           onDelete()
         }}
-        plate={plateText}
-        province={province}
+        plate={item.plate_text}
+        province={item.province}
         confidence={(item.confidence * 100).toFixed(1) + '%'}
       />
 
@@ -710,7 +723,7 @@ export default function Queue() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {items.map(item => (
+          {items.map((item, index) => (
             <VerificationItem
               key={item.id}
               item={item}
@@ -719,6 +732,7 @@ export default function Queue() {
               onCorrect={(text, prov, note) => handleCorrect(item.id, text, prov, note)}
               onDelete={() => handleDelete(item.id)}
               onToast={addToast}
+              hotkeyEnabled={index === 0}
             />
           ))}
         </div>

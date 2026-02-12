@@ -15,6 +15,7 @@ class MasterOut(BaseModel):
 class MasterCropOut(BaseModel):
     read_id: int
     crop_url: str
+    original_url: Optional[str] = None
     confidence: float
     created_at: datetime
 

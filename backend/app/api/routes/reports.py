@@ -264,45 +264,74 @@ def export_report(
 @router.get("/reports/accuracy")
 def get_accuracy_metrics(
     days: int = Query(7, ge=1, le=90),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    province: Optional[str] = Query(None),
+    camera_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     """Get daily accuracy metrics"""
-    end_dt = datetime.utcnow()
-    start_dt = end_dt - timedelta(days=days)
-    
+    if start_date and end_date:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+    else:
+        end_dt = datetime.utcnow()
+        start_dt = end_dt - timedelta(days=days)
+
+    start_day = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    rows = db.query(
+        func.date(models.PlateRead.created_at).label("read_date"),
+        models.VerificationJob.result_type,
+        func.count(models.VerificationJob.id).label("count")
+    ).join(
+        models.PlateRead, models.VerificationJob.read_id == models.PlateRead.id
+    ).join(
+        models.Detection, models.PlateRead.detection_id == models.Detection.id
+    ).join(
+        models.Capture, models.Detection.capture_id == models.Capture.id
+    ).filter(
+        models.PlateRead.created_at >= start_day,
+        models.PlateRead.created_at < end_dt
+    )
+
+    if province:
+        rows = rows.filter(models.PlateRead.province == province)
+    if camera_id:
+        rows = rows.filter(models.Capture.camera_id == camera_id)
+
+    rows = rows.group_by(
+        func.date(models.PlateRead.created_at),
+        models.VerificationJob.result_type
+    ).all()
+
+    summary_by_day = {}
+    for read_date, result_type, count in rows:
+        day_key = str(read_date)
+        if day_key not in summary_by_day:
+            summary_by_day[day_key] = {"alpr": 0, "mlpr": 0}
+        if result_type == models.VerifyResultType.ALPR:
+            summary_by_day[day_key]["alpr"] = count
+        elif result_type == models.VerifyResultType.MLPR:
+            summary_by_day[day_key]["mlpr"] = count
+
     results = []
-    current = start_dt
-    
-    while current < end_dt:
-        next_day = current + timedelta(days=1)
-        
-        alpr = db.query(func.count(models.VerificationJob.id)).join(
-            models.PlateRead
-        ).filter(
-            models.VerificationJob.result_type == models.VerifyResultType.ALPR,
-            models.PlateRead.created_at >= current,
-            models.PlateRead.created_at < next_day
-        ).scalar() or 0
-        
-        mlpr = db.query(func.count(models.VerificationJob.id)).join(
-            models.PlateRead
-        ).filter(
-            models.VerificationJob.result_type == models.VerifyResultType.MLPR,
-            models.PlateRead.created_at >= current,
-            models.PlateRead.created_at < next_day
-        ).scalar() or 0
-        
+    current = start_day
+    while current < end_day:
+        day_key = current.strftime("%Y-%m-%d")
+        alpr = summary_by_day.get(day_key, {}).get("alpr", 0)
+        mlpr = summary_by_day.get(day_key, {}).get("mlpr", 0)
         total = alpr + mlpr
         accuracy = (alpr / max(total, 1)) * 100
-        
         results.append({
-            "date": current.strftime("%Y-%m-%d"),
+            "date": day_key,
             "alpr": alpr,
             "mlpr": mlpr,
             "total": total,
             "accuracy": accuracy
         })
-        
-        current = next_day
-    
+        current += timedelta(days=1)
+
     return results
+
