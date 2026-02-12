@@ -31,8 +31,7 @@ def get_master_crops(
     
     # Find plate_reads with matching plate_text_norm
     reads = db.query(models.PlateRead).filter(
-        models.PlateRead.plate_text_norm == master.plate_text_norm,
-        models.PlateRead.status == models.ReadStatus.VERIFIED
+        models.PlateRead.plate_text_norm == master.plate_text_norm
     ).order_by(
         desc(models.PlateRead.confidence)
     ).limit(limit).all()
@@ -40,9 +39,13 @@ def get_master_crops(
     crops = []
     for read in reads:
         if read.detection and read.detection.crop_path:
+            original_url = None
+            if read.detection.capture and read.detection.capture.original_path:
+                original_url = make_image_url(read.detection.capture.original_path)
             crops.append(MasterCropOut(
                 read_id=read.id,
                 crop_url=make_image_url(read.detection.crop_path),
+                original_url=original_url,
                 confidence=read.confidence,
                 created_at=read.created_at
             ))

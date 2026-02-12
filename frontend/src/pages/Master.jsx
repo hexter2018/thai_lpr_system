@@ -147,18 +147,18 @@ function Row({ r, onSave, onDelete, busy, onViewImage }) {
         {r.crops && r.crops.length > 0 ? (
           <div className="relative inline-block group">
             <img
-              src={absImageUrl(r.crops[0].crop_url)}
+              src={absImageUrl(r.crops[0].crop_url || r.crops[0].original_url)}
               alt="crop"
-              className="h-16 w-24 cursor-pointer rounded-lg border border-slate-700/50 object-cover hover:border-emerald-400/50 transition shadow-sm"
-              onClick={() => onViewImage(absImageUrl(r.crops[0].crop_url))}
+              className="h-16 w-24 cursor-zoom-in rounded-lg border border-slate-700/50 object-cover hover:border-emerald-400/50 transition shadow-sm"
+              onClick={() => onViewImage(absImageUrl(r.crops[0].crop_url || r.crops[0].original_url))}
             />
             {r.crops.length > 1 && (
-              <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-lg ring-2 ring-slate-900">
+              <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white shadow-lg ring-2 ring-slate-900">
                 +{r.crops.length - 1}
               </span>
             )}
             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 opacity-0 group-hover:opacity-100 transition">
-              <span className="text-xs text-white">คลิกเพื่อดู</span>
+              <span className="text-xs text-white">คลิกเพื่อขยาย</span>
             </div>
           </div>
         ) : (
@@ -228,10 +228,34 @@ function Row({ r, onSave, onDelete, busy, onViewImage }) {
 }
 
 function ImageViewer({ src, onClose }) {
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    setFailed(false)
+  }, [src])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm" onClick={onClose}>
       <div className="relative max-h-[90vh] max-w-[90vw]" onClick={e => e.stopPropagation()}>
-        <img src={src} alt="full" className="max-h-[90vh] max-w-[90vw] rounded-xl border border-emerald-300/30 shadow-2xl" />
+        {loading && !failed && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-900/70 text-sm text-slate-200">
+            กำลังโหลดรูป...
+          </div>
+        )}
+        {failed && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-rose-950/50 text-sm text-rose-200">
+            ไม่สามารถโหลดรูปภาพได้
+          </div>
+        )}
+        <img
+          src={src}
+          alt="full"
+          className="max-h-[90vh] max-w-[90vw] rounded-xl border border-emerald-300/30 shadow-2xl"
+          onLoad={() => setLoading(false)}
+          onError={() => { setLoading(false); setFailed(true) }}
+        />
         <button
           className="absolute right-2 top-2 rounded-lg border border-white/20 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-100 hover:border-white/40 transition backdrop-blur"
           onClick={onClose}
