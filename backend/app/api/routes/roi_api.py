@@ -26,6 +26,8 @@ import tempfile
 import time
 from typing import Dict, List, Optional
 
+import cv2
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
@@ -183,17 +185,7 @@ async def list_cameras():
     return result
 
 @router.get("/snapshot/{camera_id}")
-async def snapshot(camera_id: str, width: int = 1280):
-    """Capture 1 frame — SSRF protected, timeout 10s"""
-    _guard()
-    cameras = _get_cameras_config()
-    cam = next((c for c in cameras if c.get("id") == camera_id), None)
-    if not cam:
-        raise HTTPException(404, f"Camera '{camera_id}' not in config")
-    rtsp_url = cam.get("rtsp", "")
-    if not rtsp_url:
-        raise HTTPException(400, "No RTSP URL")
-    width = min(max(width, 320), 1920)
+def _capture_snapshot_ffmpeg(rtsp_url: str, width: int) -> bytes:
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -207,13 +199,63 @@ async def snapshot(camera_id: str, width: int = 1280):
         if result.returncode != 0:
             raise HTTPException(502, "Snapshot failed — camera may be offline")
         with open(tmp_path, "rb") as f:
-            jpeg = f.read()
+            return f.read()
+    finally:
+        if tmp_path:
+            try: 
+                os.unlink(tmp_path)
+            except Exception: 
+                pass
+
+def _capture_snapshot_opencv(rtsp_url: str, width: int) -> bytes:
+    cap = cv2.VideoCapture(rtsp_url)
+    deadline = time.time() + 10
+    frame = None
+    while time.time() < deadline:
+        ok, candidate = cap.read()
+        if ok and candidate is not None and candidate.size > 0:
+            frame = candidate
+            break
+        time.sleep(0.05)         
+    cap.release()
+    if frame is None:
+        raise HTTPException(502, "Snapshot failed — camera may be offline")
+    h, w = frame.shape[:2]
+    target_h = max(1, int(h * (width / w)))
+    resized = cv2.resize(frame, (width, target_h), interpolation=cv2.INTER_AREA)
+    ok, encoded = cv2.imencode(".jpg", resized, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    if not ok:
+        raise HTTPException(500, "Snapshot encode failed")
+    return encoded.tobytes()
+
+@router.get("/snapshot/{camera_id}")
+async def snapshot(camera_id: str, width: int = 1280):
+    """Capture 1 frame — SSRF protected, timeout 10s"""
+    _guard()
+    cameras = _get_cameras_config()
+    cam = next((c for c in cameras if c.get("id") == camera_id), None)
+    if not cam:
+        raise HTTPException(404, f"Camera '{camera_id}' not in config")
+    rtsp_url = cam.get("rtsp", "")
+    if not rtsp_url:
+        raise HTTPException(400, "No RTSP URL")
+    width = min(max(width, 320), 1920)
+    try:
+        try:
+            jpeg = _capture_snapshot_ffmpeg(rtsp_url, width)
+        except FileNotFoundError:
+            log.warning("ffmpeg not found, fallback to OpenCV snapshot for %s", camera_id)
+            jpeg = _capture_snapshot_opencv(rtsp_url, width)
+
         if len(jpeg) < 1000:
             raise HTTPException(502, "Snapshot too small")
+        
         r = _get_redis()
         if r:
-            try: r.setex(_heartbeat_key(camera_id), 60, str(time.time()))
-            except Exception: pass
+            try: 
+                r.setex(_heartbeat_key(camera_id), 60, str(time.time()))
+            except Exception: 
+                pass
         return Response(content=jpeg, media_type="image/jpeg",
                        headers={"Cache-Control": "no-cache"})
     except subprocess.TimeoutExpired:
@@ -221,11 +263,7 @@ async def snapshot(camera_id: str, width: int = 1280):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(500, str(e))
-    finally:
-        if tmp_path:
-            try: os.unlink(tmp_path)
-            except Exception: pass
+        raise HTTPException(500, str(e))  
 
 @router.get("/config/{camera_id}", response_model=ROIConfig)
 async def get_roi(camera_id: str):
