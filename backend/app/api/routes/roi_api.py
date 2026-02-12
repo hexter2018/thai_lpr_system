@@ -182,7 +182,6 @@ async def list_cameras():
         ))
     return result
 
-@router.get("/snapshot/{camera_id}")
 def _capture_snapshot_ffmpeg(rtsp_url: str, width: int) -> bytes:
     tmp_path = None
     try:
