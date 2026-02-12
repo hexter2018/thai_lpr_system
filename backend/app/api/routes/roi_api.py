@@ -26,8 +26,6 @@ import tempfile
 import time
 from typing import Dict, List, Optional
 
-import cv2
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
@@ -208,6 +206,11 @@ def _capture_snapshot_ffmpeg(rtsp_url: str, width: int) -> bytes:
                 pass
 
 def _capture_snapshot_opencv(rtsp_url: str, width: int) -> bytes:
+    try:
+        import cv2
+    except ImportError as e:
+        raise HTTPException(503, "OpenCV not installed for snapshot fallback") from e
+
     cap = cv2.VideoCapture(rtsp_url)
     deadline = time.time() + 10
     frame = None
