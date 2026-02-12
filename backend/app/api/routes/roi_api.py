@@ -204,6 +204,19 @@ def _capture_snapshot_ffmpeg(rtsp_url: str, width: int) -> bytes:
             except Exception: 
                 pass
 
+def _snapshot_unavailable_svg(camera_id: str, width: int, reason: str) -> bytes:
+    safe_reason = (reason or "snapshot unavailable").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    h = max(240, int(width * 9 / 16))
+    svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{h}' viewBox='0 0 {width} {h}'>
+<defs><linearGradient id='g' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='#0b1220'/><stop offset='100%' stop-color='#111827'/></linearGradient></defs>
+<rect width='100%' height='100%' fill='url(#g)'/>
+<rect x='24' y='24' width='{width-48}' height='{h-48}' fill='none' stroke='#334155' stroke-width='2' stroke-dasharray='8 8'/>
+<text x='50%' y='46%' text-anchor='middle' fill='#e2e8f0' font-family='monospace' font-size='28'>Snapshot unavailable</text>
+<text x='50%' y='56%' text-anchor='middle' fill='#94a3b8' font-family='monospace' font-size='18'>camera: {camera_id}</text>
+<text x='50%' y='64%' text-anchor='middle' fill='#94a3b8' font-family='monospace' font-size='16'>{safe_reason}</text>
+</svg>"""
+    return svg.encode("utf-8")
+
 def _capture_snapshot_opencv(rtsp_url: str, width: int) -> bytes:
     try:
         import cv2
