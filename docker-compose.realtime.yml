@@ -43,7 +43,7 @@ services:
     user: "1000:1000"
     environment:
       TZ: Asia/Bangkok
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -164,7 +164,7 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       RTSP_DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
@@ -247,7 +247,7 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       RTSP_DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
@@ -330,7 +330,7 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       RTSP_DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
@@ -436,7 +436,7 @@ services:
       context: ./frontend
     environment:
       TZ: Asia/Bangkok
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
       VITE_API_BASE: http://10.32.70.136:8000
       VITE_PROXY_TARGET: http://backend:8000
       VITE_ENABLE_MJPEG_STREAM: "true"
