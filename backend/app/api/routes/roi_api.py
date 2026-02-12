@@ -258,10 +258,17 @@ async def snapshot(camera_id: str, width: int = 1280):
     try:
         try:
             jpeg = _capture_snapshot_ffmpeg(rtsp_url, width)
-        except FileNotFoundError:
-            log.warning("ffmpeg not found, fallback to OpenCV snapshot for %s", camera_id)
-            jpeg = _capture_snapshot_opencv(rtsp_url, width)
-
+        except (FileNotFoundError, HTTPException) as ffmpeg_error:
+            if isinstance(ffmpeg_error, FileNotFoundError):
+                log.warning("ffmpeg not found, fallback to OpenCV snapshot for %s", camera_id)
+            else:
+                log.warning("ffmpeg snapshot failed for %s: %s; fallback to OpenCV", camera_id, ffmpeg_error.detail)
+            try:
+                jpeg = _capture_snapshot_opencv(rtsp_url, width)
+            except HTTPException as opencv_error:
+                if isinstance(ffmpeg_error, HTTPException) and opencv_error.status_code == 503:
+                    raise ffmpeg_error
+                raise
         if len(jpeg) < 1000:
             raise HTTPException(502, "Snapshot too small")
         
