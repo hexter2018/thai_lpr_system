@@ -43,6 +43,14 @@ from alpr_worker.rtsp.config import RTSPConfig
 from alpr_worker.rtsp.line_trigger import VirtualLineTrigger, LineTriggerConfig
 from alpr_worker.celery_app import celery_app
 
+# ─── ROI Reader (Dashboard integration) ───
+try:
+    from alpr_worker.rtsp.roi_reader import ROIReader
+    ROI_READER_AVAILABLE = True
+except ImportError:
+    ROI_READER_AVAILABLE = False
+    ROIReader = None
+
 # Import night enhancement modules (optional)
 _NIGHT_ENHANCEMENT_IMPORT_ERRORS: Dict[str, str] = {}
 
@@ -111,6 +119,19 @@ class RTSPFrameProducer:
         
         # Redis
         self.redis = Redis.from_url(self.config.redis_url)
+        
+        # ROI Reader (Dashboard → Redis → ENV fallback)
+        self._roi_reader = None
+        if ROI_READER_AVAILABLE:
+            try:
+                self._roi_reader = ROIReader(
+                    redis_client=self.redis,
+                    camera_id=camera_id,
+                )
+                log.info("ROIReader: camera=%s source=%s", camera_id, self._roi_reader.get_source())
+            except Exception as e:
+                log.warning("ROIReader init failed (using ENV): %s", e)
+                self._roi_reader = None
         
         # Storage
         self.storage_dir = Path(self.config.storage_dir)
@@ -319,6 +340,28 @@ class RTSPFrameProducer:
             queue="default",
         )
     
+    def _get_current_roi(self) -> dict:
+        """
+        อ่าน ROI ปัจจุบัน — safe, never throws
+
+        Priority:
+          1. ROIReader (Redis ← Dashboard)
+          2. ENV (docker-compose)
+          3. Full frame
+        """
+        if self._roi_reader is not None:
+            try:
+                return self._roi_reader.get_roi()
+            except Exception:
+                pass
+        # Fallback: ENV เดิม
+        return {
+            "x1": float(os.getenv("RTSP_ROI_X1", "0.0")),
+            "y1": float(os.getenv("RTSP_ROI_Y1", "0.0")),
+            "x2": float(os.getenv("RTSP_ROI_X2", "1.0")),
+            "y2": float(os.getenv("RTSP_ROI_Y2", "1.0")),
+        }
+
     def _process_frame(self, frame: np.ndarray) -> tuple[bool, Optional[np.ndarray], Dict[str, Any]]:
         """
         Process single frame through filters
@@ -426,6 +469,17 @@ class RTSPFrameProducer:
                 continue
             self.last_frame_time = now
             
+            # ─── ROI Crop (dynamic from Dashboard/Redis/ENV) ───
+            roi_enabled = os.getenv("RTSP_ROI_ENABLED", "false").lower() == "true"
+            if roi_enabled:
+                roi = self._get_current_roi()
+                h, w = frame.shape[:2]
+                rx1 = max(0, min(int(roi["x1"] * w), w - 1))
+                ry1 = max(0, min(int(roi["y1"] * h), h - 1))
+                rx2 = max(rx1 + 1, min(int(roi["x2"] * w), w))
+                ry2 = max(ry1 + 1, min(int(roi["y2"] * h), h))
+                frame = frame[ry1:ry2, rx1:rx2]
+
             if self.line_trigger.enabled and not self.line_trigger.check(frame, now):
                 self.stats["frames_dropped_line"] += 1
                 continue

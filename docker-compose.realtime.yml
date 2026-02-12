@@ -47,6 +47,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
       CORS_ORIGINS: http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173
+
+      # ===== ROI Agent Dashboard — camera config =====
+      # roi_api.py อ่านค่านี้เพื่อ list กล้อง + ดึง snapshot
+      CAMERAS_CONFIG: >
+        [
+          {"id": "PCN_Lane4", "name": "PCN-MM04 Lane 4", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane5", "name": "PCN-MM04 Lane 5", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane6", "name": "PCN-MM04 Lane 6", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
+        ]
+
     volumes:
       - ./storage:/storage
       - ./models:/models
@@ -61,7 +71,6 @@ services:
       - alpr-network
 
   # ==================== Celery Workers ====================
-  # GPU Worker - สามารถ scale ได้ด้วย --scale worker-gpu-1=3
   worker-gpu-1:
     build:
       context: ./worker
@@ -107,12 +116,27 @@ services:
       OCR_MARGIN_MIN: "0.12"
       OCR_DEBUG_CONFIDENCE_THRESHOLD: "0.55"
 
-      # Headlight Deglare (preprocessing ก่อน YOLO สำหรับภาพกลางคืน)
+      # Headlight Deglare
       DEGLARE_ENABLED: "true"
       DEGLARE_SATURATION_THRESHOLD: "240"
       DEGLARE_CLAHE_CLIP: "3.0"
+
+      # ===== Crop Validator (กรอง crop ข้างรถ) =====
+      CROP_VALIDATOR_ENABLED: "true"
+      CROP_MIN_WIDTH: "40"
+      CROP_MIN_HEIGHT: "15"
+      CROP_MIN_ASPECT_RATIO: "1.5"
+      CROP_MAX_ASPECT_RATIO: "7.0"
+      CROP_MIN_CONTRAST: "20.0"
+      CROP_MIN_EDGE_DENSITY: "0.03"
+
+      # ===== Plate Dedup (กรองทะเบียนซ้ำ) =====
+      PLATE_DEDUP_ENABLED: "true"
+      PLATE_DEDUP_COOLDOWN_SEC: "60"
+      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
+      PLATE_DEDUP_CAMERA_SCOPE: "true"
       
-      # Celery settings (เพิ่ม concurrency สำหรับ RTSP load)
+      # Celery settings
       CELERY_WORKER_CONCURRENCY: "8"
       CELERY_WORKER_PREFETCH: "16"
       CELERY_WORKER_MAX_TASKS_PER_CHILD: "200"
@@ -133,73 +157,56 @@ services:
     restart: unless-stopped
 
   # ==================== RTSP Producers ====================
-  # Producer สำหรับแต่ละกล้อง
-  # Copy section นี้สำหรับกล้องเพิ่มเติม
   
   rtsp-producer-cam1:
     build:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
-      # Camera settings
-      #CAMERA_ID: PCN_Lane4
-      #RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp
-      
-      # Database & Redis
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      
 
       NIGHT_ENHANCEMENT_AVAILABLE: "true"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
       NIGHT_ENHANCEMENT_END_HOUR: "6"
-
       
-      # ===== Frame Capture =====
-      # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
-      # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
       RTSP_TARGET_FPS: "5.0"
       RTSP_RECONNECT_SEC: "2.0"
       
-      # ===== Motion Filter: ปิด! =====
-      # ปัญหา: รถชะลอเข้าด่าน = motion น้อย → ถูกกรองทิ้ง
-      # ที่ด่านเก็บเงิน motion filter ไม่เหมาะ เพราะรถเกือบหยุด
       RTSP_ENABLE_MOTION_FILTER: "false"
       RTSP_MOTION_THRESHOLD: "3.0"
       
-      # ===== Quality Filter: ลด threshold =====
-      # เดิม 40.0 สูงเกิน → ป้ายเหลือง/ป้ายไกลถูกกรองทิ้ง
       RTSP_ENABLE_QUALITY_FILTER: "true"
       RTSP_MIN_QUALITY_SCORE: "20.0"
       
-      # ===== Dedup: ลดความเข้มงวด =====
-      # เดิม threshold=5 เข้มเกิน → เฟรมดีๆ ถูกกรองว่าซ้ำ
       RTSP_ENABLE_DEDUP: "true"
       RTSP_DEDUP_CACHE_SIZE: "30"
       RTSP_DEDUP_THRESHOLD: "10"
 
-      # ===== Quality Gate: ลด threshold สำหรับป้ายเหลือง =====
       QUALITY_GATE_ENABLED: "true"
       QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      # ===== Best Shot: ปรับให้รับรถติดๆ กันได้ =====
-      # Window 3วิ + Gap 0.8วิ = ส่ง bestshot เร็วขึ้น ไม่พลาดรถคันถัดไป
       RTSP_BESTSHOT_ENABLED: "true"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
-      # ===== ROI: ปรับจากภาพ PCN-MM04 =====
+      # ===== ROI: ค่า ENV เป็น fallback =====
+      # ถ้า Redis มีค่า (จาก Dashboard) → ใช้ Redis
+      # ถ้า Redis ไม่มี → fallback ใช้ ENV ตรงนี้
       RTSP_ROI_ENABLED: "true"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
-      # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
+      # ===== ROI from Redis (Dashboard integration) =====
+      RTSP_ROI_REDIS_ENABLED: "true"
+      RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
+
       RTSP_LINE_ENABLED: "false"
       RTSP_LINE_X1: "0.27"
       RTSP_LINE_Y1: "0.45"
@@ -209,21 +216,6 @@ services:
       RTSP_LINE_BAND_PX: "40"
       RTSP_LINE_MIN_AREA_PX: "1500"
       RTSP_LINE_COOLDOWN_SEC: "1.2"
-      
-      # Crop Validator — กรอง crop ข้างรถ
-      CROP_VALIDATOR_ENABLED: "true"
-      CROP_MIN_WIDTH: "40"
-      CROP_MIN_HEIGHT: "15"
-      CROP_MIN_ASPECT_RATIO: "1.5"
-      CROP_MAX_ASPECT_RATIO: "7.0"
-      CROP_MIN_CONTRAST: "20.0"
-      CROP_MIN_EDGE_DENSITY: "0.03"
-
-      # Plate Dedup — กรองทะเบียนซ้ำ
-      PLATE_DEDUP_ENABLED: "true"
-      PLATE_DEDUP_COOLDOWN_SEC: "60"
-      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
-      PLATE_DEDUP_CAMERA_SCOPE: "true"
 
     volumes:
       - ./storage:/storage
@@ -251,65 +243,47 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
-      # Camera settings
-      #CAMERA_ID: PCN_Lane5
-      #RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp
-      
-      # Database & Redis
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      
 
       NIGHT_ENHANCEMENT_AVAILABLE: "true"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
       NIGHT_ENHANCEMENT_END_HOUR: "6"
-
       
-      # ===== Frame Capture =====
-      # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
-      # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
       RTSP_TARGET_FPS: "5.0"
       RTSP_RECONNECT_SEC: "2.0"
       
-      # ===== Motion Filter: ปิด! =====
-      # ปัญหา: รถชะลอเข้าด่าน = motion น้อย → ถูกกรองทิ้ง
-      # ที่ด่านเก็บเงิน motion filter ไม่เหมาะ เพราะรถเกือบหยุด
       RTSP_ENABLE_MOTION_FILTER: "false"
       RTSP_MOTION_THRESHOLD: "3.0"
       
-      # ===== Quality Filter: ลด threshold =====
-      # เดิม 40.0 สูงเกิน → ป้ายเหลือง/ป้ายไกลถูกกรองทิ้ง
       RTSP_ENABLE_QUALITY_FILTER: "true"
       RTSP_MIN_QUALITY_SCORE: "20.0"
       
-      # ===== Dedup: ลดความเข้มงวด =====
-      # เดิม threshold=5 เข้มเกิน → เฟรมดีๆ ถูกกรองว่าซ้ำ
       RTSP_ENABLE_DEDUP: "true"
       RTSP_DEDUP_CACHE_SIZE: "30"
       RTSP_DEDUP_THRESHOLD: "10"
 
-      # ===== Quality Gate: ลด threshold สำหรับป้ายเหลือง =====
       QUALITY_GATE_ENABLED: "true"
       QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      # ===== Best Shot: ปรับให้รับรถติดๆ กันได้ =====
-      # Window 3วิ + Gap 0.8วิ = ส่ง bestshot เร็วขึ้น ไม่พลาดรถคันถัดไป
       RTSP_BESTSHOT_ENABLED: "true"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
-      # ===== ROI: ปรับจากภาพ PCN-MM04 =====
       RTSP_ROI_ENABLED: "true"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
-      # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
+      # ===== ROI from Redis (Dashboard integration) =====
+      RTSP_ROI_REDIS_ENABLED: "true"
+      RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
+
       RTSP_LINE_ENABLED: "false"
       RTSP_LINE_X1: "0.27"
       RTSP_LINE_Y1: "0.45"
@@ -319,21 +293,6 @@ services:
       RTSP_LINE_BAND_PX: "40"
       RTSP_LINE_MIN_AREA_PX: "1500"
       RTSP_LINE_COOLDOWN_SEC: "1.2"
-      
-      # Crop Validator — กรอง crop ข้างรถ
-      CROP_VALIDATOR_ENABLED: "true"
-      CROP_MIN_WIDTH: "40"
-      CROP_MIN_HEIGHT: "15"
-      CROP_MIN_ASPECT_RATIO: "1.5"
-      CROP_MAX_ASPECT_RATIO: "7.0"
-      CROP_MIN_CONTRAST: "20.0"
-      CROP_MIN_EDGE_DENSITY: "0.03"
-
-      # Plate Dedup — กรองทะเบียนซ้ำ
-      PLATE_DEDUP_ENABLED: "true"
-      PLATE_DEDUP_COOLDOWN_SEC: "60"
-      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
-      PLATE_DEDUP_CAMERA_SCOPE: "true"
 
     volumes:
       - ./storage:/storage
@@ -361,65 +320,47 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
-      # Camera settings
-      #CAMERA_ID: PCN_Lane6
-      #RTSP_URL: rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp
-      
-      # Database & Redis
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      
 
       NIGHT_ENHANCEMENT_AVAILABLE: "true"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
       NIGHT_ENHANCEMENT_END_HOUR: "6"
-
       
-      # ===== Frame Capture =====
-      # เพิ่ม FPS: 2→3 เพราะรถที่ด่านวิ่ง ~20-30 km/h ผ่านใน 2-3 วิ
-      # 3fps x 3วิ = 9 เฟรม → มีโอกาสจับป้ายมากขึ้น
       RTSP_TARGET_FPS: "5.0"
       RTSP_RECONNECT_SEC: "2.0"
       
-      # ===== Motion Filter: ปิด! =====
-      # ปัญหา: รถชะลอเข้าด่าน = motion น้อย → ถูกกรองทิ้ง
-      # ที่ด่านเก็บเงิน motion filter ไม่เหมาะ เพราะรถเกือบหยุด
       RTSP_ENABLE_MOTION_FILTER: "false"
       RTSP_MOTION_THRESHOLD: "3.0"
       
-      # ===== Quality Filter: ลด threshold =====
-      # เดิม 40.0 สูงเกิน → ป้ายเหลือง/ป้ายไกลถูกกรองทิ้ง
       RTSP_ENABLE_QUALITY_FILTER: "true"
       RTSP_MIN_QUALITY_SCORE: "20.0"
       
-      # ===== Dedup: ลดความเข้มงวด =====
-      # เดิม threshold=5 เข้มเกิน → เฟรมดีๆ ถูกกรองว่าซ้ำ
       RTSP_ENABLE_DEDUP: "true"
       RTSP_DEDUP_CACHE_SIZE: "30"
       RTSP_DEDUP_THRESHOLD: "10"
 
-      # ===== Quality Gate: ลด threshold สำหรับป้ายเหลือง =====
       QUALITY_GATE_ENABLED: "true"
       QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      # ===== Best Shot: ปรับให้รับรถติดๆ กันได้ =====
-      # Window 3วิ + Gap 0.8วิ = ส่ง bestshot เร็วขึ้น ไม่พลาดรถคันถัดไป
       RTSP_BESTSHOT_ENABLED: "true"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
-      # ===== ROI: ปรับจากภาพ PCN-MM04 =====
       RTSP_ROI_ENABLED: "true"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
-      # ===== Virtual Line Trigger (แนะนำแทน ROI สำหรับจังหวะ cap) =====
+      # ===== ROI from Redis (Dashboard integration) =====
+      RTSP_ROI_REDIS_ENABLED: "true"
+      RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
+
       RTSP_LINE_ENABLED: "false"
       RTSP_LINE_X1: "0.27"
       RTSP_LINE_Y1: "0.45"
@@ -429,21 +370,6 @@ services:
       RTSP_LINE_BAND_PX: "40"
       RTSP_LINE_MIN_AREA_PX: "1500"
       RTSP_LINE_COOLDOWN_SEC: "1.2"
-      
-      # Crop Validator — กรอง crop ข้างรถ
-      CROP_VALIDATOR_ENABLED: "true"
-      CROP_MIN_WIDTH: "40"
-      CROP_MIN_HEIGHT: "15"
-      CROP_MIN_ASPECT_RATIO: "1.5"
-      CROP_MAX_ASPECT_RATIO: "7.0"
-      CROP_MIN_CONTRAST: "20.0"
-      CROP_MIN_EDGE_DENSITY: "0.03"
-
-      # Plate Dedup — กรองทะเบียนซ้ำ
-      PLATE_DEDUP_ENABLED: "true"
-      PLATE_DEDUP_COOLDOWN_SEC: "60"
-      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
-      PLATE_DEDUP_CAMERA_SCOPE: "true"
 
     volumes:
       - ./storage:/storage
@@ -473,7 +399,6 @@ services:
     ports:
       - "5555:5555"
     environment:
-      # ===== Headlight Deglare (ใหม่) =====
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
@@ -514,25 +439,3 @@ volumes:
 networks:
   alpr-network:
     driver: bridge
-
-# ==================== Usage ====================
-# 1. Start core services:
-#    docker-compose -f docker-compose.realtime.yml up -d postgres redis backend
-#
-# 2. Start workers (scale as needed):
-#    docker-compose -f docker-compose.realtime.yml up -d --scale worker-gpu-1=2
-#
-# 3. Start RTSP producers:
-#    docker-compose -f docker-compose.realtime.yml up -d rtsp-producer-cam1
-#
-# 4. Monitor:
-#    Flower: http://localhost:5555
-#    Redis Commander: http://localhost:8081
-#    Backend API: http://localhost:8000/docs
-#
-# 5. Stop specific camera:
-#    curl -X POST http://localhost:8000/api/rtsp/stop -H "Content-Type: application/json" -d '{"camera_id":"plaza2-lane1"}'
-#
-# 6. View logs:
-#    docker-compose -f docker-compose.realtime.yml logs -f rtsp-producer-cam1
-#    docker-compose -f docker-compose.realtime.yml logs -f worker-gpu-1
