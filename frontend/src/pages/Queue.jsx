@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useRef } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { absImageUrl, deleteRead, listPending, verifyRead } from '../lib/api.js'
 import { 
   Button, 
@@ -61,10 +61,8 @@ function ToastContainer({ toasts }) {
 /* ===== IMAGE VIEWER MODAL ===== */
 function ImageViewer({ open, src, title, onClose }) {
   const [scale, setScale] = useState(1)
-  const [position, setPosition] = useState({ x: 0, y: 0 })
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
-  const dragState = useRef({ dragging: false, startX: 0, startY: 0, x: 0, y: 0 })
 
   useEffect(() => {
     if (!open) return
@@ -73,7 +71,7 @@ function ImageViewer({ open, src, title, onClose }) {
       if (e.key === 'Escape') onClose()
       if (e.key === '+' || e.key === '=') setScale(s => Math.min(4, s + 0.2))
       if (e.key === '-') setScale(s => Math.max(0.5, s - 0.2))
-      if (e.key === '0') { setScale(1); setPosition({ x: 0, y: 0 }) }
+      if (e.key === '0') { setScale(1);
     }
     
     window.addEventListener('keydown', handleKey)
@@ -83,7 +81,6 @@ function ImageViewer({ open, src, title, onClose }) {
   useEffect(() => {
     if (open) {
       setScale(1)
-      setPosition({ x: 0, y: 0 })
       setLoading(true)
       setFailed(false)
     }
@@ -97,42 +94,17 @@ function ImageViewer({ open, src, title, onClose }) {
     setScale(s => Math.min(4, Math.max(0.5, s + delta)))
   }
 
-  const handleMouseDown = (e) => {
-    dragState.current = {
-      dragging: true,
-      startX: e.clientX,
-      startY: e.clientY,
-      x: position.x,
-      y: position.y
-    }
-  }
-
-  const handleMouseMove = (e) => {
-    if (!dragState.current.dragging) return
-    const dx = e.clientX - dragState.current.startX
-    const dy = e.clientY - dragState.current.startY
-    setPosition({ x: dragState.current.x + dx, y: dragState.current.y + dy })
-  }
-
-  const handleMouseUp = () => {
-    dragState.current.dragging = false
-  }
-
   return (
-    <div 
-      className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm"
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-    >
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm" onClick={onClose}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-700/50 px-6 py-4 bg-slate-900/50">
+      <div className="flex items-center justify-between border-b border-slate-700/50 px-4 py-3 bg-slate-900/70" onClick={e => e.stopPropagation()}>
         <div>
           <h3 className="text-lg font-semibold text-slate-100">{title}</h3>
           <p className="text-xs text-slate-400 mt-1">
-            Zoom: {(scale * 100).toFixed(0)}% • คลิกค้างและลากเพื่อเลื่อน • เลื่อนล้อเมาส์เพื่อซูม
+            Zoom: {(scale * 100).toFixed(0)}% • เลื่อนล้อเมาส์เพื่อซูม • กด 0 เพื่อรีเซ็ต
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Button variant="ghost" size="sm" onClick={() => setScale(s => Math.max(0.5, s - 0.2))}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -144,6 +116,9 @@ function ImageViewer({ open, src, title, onClose }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => setScale(1)}>
+            รีเซ็ต
+          </Button>          
           <div className="w-px h-6 bg-slate-700/50 mx-2" />
           <Button variant="ghost" size="sm" onClick={onClose}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -155,8 +130,8 @@ function ImageViewer({ open, src, title, onClose }) {
       </div>
 
       {/* Image Container */}
-      <div className="flex-1 overflow-hidden" onWheel={handleWheel}>
-        <div className="relative flex h-full w-full items-center justify-center p-8">
+      <div className="flex-1 overflow-auto" onWheel={handleWheel} onClick={e => e.stopPropagation()}>
+        <div className="relative flex min-h-full min-w-full items-center justify-center p-6">
           {loading && !failed && (
             <div className="absolute z-10 rounded-xl bg-slate-900/70 px-4 py-2 text-sm text-slate-200">กำลังโหลดรูป...</div>
           )}
@@ -166,13 +141,12 @@ function ImageViewer({ open, src, title, onClose }) {
           <img
             src={src}
             alt={title}
-            className="max-h-full max-w-full select-none shadow-2xl rounded-lg"
+            className="max-h-[85vh] max-w-[92vw] select-none rounded-lg shadow-2xl"
             style={{
-              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-              cursor: dragState.current.dragging ? 'grabbing' : 'grab',
-              transition: dragState.current.dragging ? 'none' : 'transform 0.1s ease-out'
+              transform: `scale(${scale})`,
+              transformOrigin: 'center center',
+              transition: 'transform 0.08s ease-out'             
             }}
-            onMouseDown={handleMouseDown}
             onLoad={() => setLoading(false)}
             onError={() => { setLoading(false); setFailed(true) }}
             draggable={false}
@@ -308,7 +282,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast,
   return (
     <>
       <Card className="p-5">
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[520px_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
           {/* Left: Image Evidence */}
           <div>
             <CardHeader className="px-0 pt-0">
@@ -486,12 +460,12 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast,
 
             {/* Action Buttons */}
             <div className="mt-4 pt-3 border-t border-slate-700/50">
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Button
                   variant="primary"
                   disabled={busy}
                   onClick={onConfirm}
-                  className="flex-1"
+                  className="w-full"
                   icon={
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -506,7 +480,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast,
                   variant="secondary"
                   disabled={busy}
                   onClick={() => onCorrect(plateText, province, note)}
-                  className="flex-1"
+                  className="w-full"
                   icon={
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z" />
@@ -520,6 +494,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast,
                 <Button
                   variant="secondary"
                   onClick={handleNormalize}
+                  className="w-full"
                   icon={
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
@@ -533,6 +508,7 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast,
                   variant="danger"
                   disabled={busy}
                   onClick={() => setDeleteOpen(true)}
+                  className="w-full"
                   icon={
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -570,6 +546,20 @@ function VerificationItem({ item, busy, onConfirm, onCorrect, onDelete, onToast,
 }
 
 /* ===== MAIN QUEUE PAGE ===== */
+export function QueueItem({ r, busy, onConfirm, onCorrect, onDelete, onToast }) {
+  return (
+    <VerificationItem
+      item={r}
+      busy={busy}
+      onConfirm={onConfirm}
+      onCorrect={onCorrect}
+      onDelete={onDelete}
+      onToast={onToast}
+      hotkeyEnabled
+    />
+  )
+}
+
 export default function Queue() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)

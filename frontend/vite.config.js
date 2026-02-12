@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/setupTests.js",
+    globals: true,
   },
   server: {
     host: true,          // ✅ bind 0.0.0.0 (ให้เครื่องอื่นเข้าถึงได้)

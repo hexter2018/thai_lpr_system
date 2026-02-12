@@ -228,17 +228,45 @@ function Row({ r, onSave, onDelete, busy, onViewImage }) {
 }
 
 function ImageViewer({ src, onClose }) {
+  const [scle, setScale] = useState(1)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
+    setScale(1)
     setLoading(true)
     setFailed(false)
   }, [src])
 
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === '+' || e.key === '=') setScale(s => Math.min(4, s + 0.2))
+      if (e.key === '-') setScale(s => Math.max(0.5, s - 0.2))
+      if (e.key === '0') setScale(1)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
+  const handleWheel = (e) => {
+    e.preventDefault()
+    const delta = e.deltaY * -0.001
+    setScale(s => Math.min(4, Math.max(0.5, s + delta)))
+  }
+  
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative max-h-[90vh] max-w-[90vw]" onClick={e => e.stopPropagation()}>
+      <div className="relative h-[90vh] w-[94vw] max-w-6xl overflow-hidden rounded-xl border border-emerald-300/30 bg-slate-950/95" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-700/50 bg-slate-900/70 px-3 py-2">
+          <div className="text-xs text-slate-300">ซูม {(scale * 100).toFixed(0)}% • เลื่อนล้อเมาส์เพื่อซูม</div>
+          <div className="flex items-center gap-1.5">
+            <button className="rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:border-slate-400" onClick={() => setScale(s => Math.max(0.5, s - 0.2))}>-</button>
+            <button className="rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:border-slate-400" onClick={() => setScale(1)}>รีเซ็ต</button>
+            <button className="rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:border-slate-400" onClick={() => setScale(s => Math.min(4, s + 0.2))}>+</button>
+          </div>
+        </div>
+        <div className="relative h-[calc(100%-44px)] overflow-auto" onWheel={handleWheel}>
         {loading && !failed && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-900/70 text-sm text-slate-200">
             กำลังโหลดรูป...
@@ -252,10 +280,12 @@ function ImageViewer({ src, onClose }) {
         <img
           src={src}
           alt="full"
-          className="max-h-[90vh] max-w-[90vw] rounded-xl border border-emerald-300/30 shadow-2xl"
+          className="mx-auto mt-4 max-h-[80vh] max-w-[90vw] rounded-xl shadow-2xl"
+          style={{ transform: `scale(${scale})`, transformOrigin: 'center center', transition: 'transform 0.08s ease-out' }}
           onLoad={() => setLoading(false)}
           onError={() => { setLoading(false); setFailed(true) }}
         />
+        </div>
         <button
           className="absolute right-2 top-2 rounded-lg border border-white/20 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-100 hover:border-white/40 transition backdrop-blur"
           onClick={onClose}
