@@ -23,7 +23,7 @@ docker compose up --build
 
 - Backend: http://localhost:8000
 - API docs: http://localhost:8000/docs
-- Frontend: http://localhost
+- Frontend: http://localhost:5173
 
 ### Windows (Docker Desktop → Linux containers)
 Use the CPU worker and localhost defaults:
@@ -33,7 +33,7 @@ docker compose -f docker-compose.windows.yml up --build
 ```
 
 - Backend: http://localhost:8000
-- Frontend: http://localhost
+- Frontend: http://localhost:5173
 
 #### Windows + GPU (Docker Desktop + WSL2)
 If you have NVIDIA GPU support enabled in Docker Desktop (WSL2 backend), use:
@@ -77,7 +77,7 @@ npm install
 npm run dev -- --host 0.0.0.0 --port 80
 ```
 
-The Vite dev server proxies `/api/*` to `http://localhost:8000` by default. To point the UI at a different API, set `VITE_API_BASE` in your environment (see `.env.example`).
+The Vite dev server proxies `/api/*` to `http://localhost:8000` by default. In Docker, set `VITE_PROXY_TARGET=http://backend:8000` so the frontend container can reach the backend service. To point the browser-side UI calls at a different API host, set `VITE_API_BASE` (see `.env.example`).
 
 ---
 
