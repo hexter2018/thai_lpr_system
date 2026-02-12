@@ -205,6 +205,9 @@ async def snapshot(camera_id: str, width: int = 1280):
         ]
         result = subprocess.run(cmd, capture_output=True, timeout=10)
         if result.returncode != 0:
+            stderr = (result.stderr or b"").decode("utf-8", errors="ignore").strip()
+            if stderr:
+                log.warning("ROI snapshot ffmpeg failed for %s: %s", camera_id, stderr[-500:])
             raise HTTPException(502, "Snapshot failed — camera may be offline")
         with open(tmp_path, "rb") as f:
             jpeg = f.read()
@@ -218,6 +221,9 @@ async def snapshot(camera_id: str, width: int = 1280):
                        headers={"Cache-Control": "no-cache"})
     except subprocess.TimeoutExpired:
         raise HTTPException(504, "RTSP timeout (10s)")
+    except FileNotFoundError:
+        log.exception("ROI snapshot failed: ffmpeg binary not found")
+        raise HTTPException(503, "Snapshot service unavailable (ffmpeg not installed)")
     except HTTPException:
         raise
     except Exception as e:
