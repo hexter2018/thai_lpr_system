@@ -7,6 +7,9 @@ const API_BASE = (() => {
   return window.location.origin.replace(/\/$/, "");
 })();
 
+const ENABLE_MJPEG_STREAM =
+  ((import.meta as any).env.VITE_ENABLE_MJPEG_STREAM || "true").toLowerCase() === "true";
+
 // ─── API FUNCTIONS ───────────────────────────────────────────
 function normalizeCamera(cam) {
   if (!cam || typeof cam !== "object") return null;
@@ -24,7 +27,7 @@ async function fetchCameras() {
   try {
     const res = await fetch(`${API_BASE}/api/roi-agent/cameras`);
     if (!res.ok) throw new Error(`${res.status}`);
-        const raw = await res.json();
+    const raw = await res.json();
     if (!Array.isArray(raw)) return null;
     return raw.map(normalizeCamera).filter(Boolean);
   } catch (e) {
@@ -131,7 +134,7 @@ function SnapshotError({ message }) {
       fontFamily: "monospace", whiteSpace: "nowrap", pointerEvents: "none",
       backdropFilter: "blur(4px)", maxWidth: "90%", textOverflow: "ellipsis", overflow: "hidden",
     }}>
-      ⚠ Snapshot error: {message}
+      ⚠ {message}
     </div>
   );
 }
@@ -140,9 +143,11 @@ function SnapshotError({ message }) {
 export default function ROIDashboard() {
   const [cameras, setCameras] = useState(null);
   const [selectedCam, setSelectedCam] = useState(null);
+  const [streamMode, setStreamMode] = useState("live"); // "live" or "snapshot"
   const [snapshotUrl, setSnapshotUrl] = useState(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [snapshotError, setSnapshotError] = useState(null);
+  const [streamError, setStreamError] = useState(null);
   const [roi, setRoi] = useState({ x1: 0.15, y1: 0.30, x2: 0.85, y2: 0.80 });
   const [savedRoi, setSavedRoi] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -153,8 +158,14 @@ export default function ROIDashboard() {
 
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
+  const videoRef = useRef(null);
   const [dragging, setDragging] = useState(null);
   const CANVAS_W = 960, CANVAS_H = 540;
+
+  // ── MJPEG Stream URL ──
+  const streamUrl = selectedCam && ENABLE_MJPEG_STREAM 
+    ? `${API_BASE}/api/streams/${encodeURIComponent(selectedCam)}/mjpeg`
+    : null;
 
   // ── Load cameras on mount ──
   useEffect(() => {
@@ -179,14 +190,38 @@ export default function ROIDashboard() {
   useEffect(() => {
     if (!selectedCam) return;
     imgRef.current = null;
+    videoRef.current = null;
     setSnapshotUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
     setSnapshotError(null);
+    setStreamError(null);
     setSaveResult(null);
     (async () => {
       const data = await fetchRoi(selectedCam);
       if (data) { setRoi(data); setSavedRoi(data); }
     })();
   }, [selectedCam]);
+
+  // ── Handle video stream errors ──
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || streamMode !== "live") return;
+
+    const handleError = () => {
+      setStreamError("Stream not available. Camera may be offline or RTSP not started.");
+    };
+
+    const handleLoadStart = () => {
+      setStreamError(null);
+    };
+
+    video.addEventListener("error", handleError);
+    video.addEventListener("loadstart", handleLoadStart);
+
+    return () => {
+      video.removeEventListener("error", handleError);
+      video.removeEventListener("loadstart", handleLoadStart);
+    };
+  }, [streamMode]);
 
   // ── Capture snapshot ──
   const captureSnapshot = useCallback(async () => {
@@ -204,12 +239,12 @@ export default function ROIDashboard() {
     }
   }, [selectedCam, snapshotUrl]);
 
-  // ── Auto-refresh ──
+  // ── Auto-refresh (only for snapshot mode) ──
   useEffect(() => {
-    if (!refreshInterval) return;
+    if (!refreshInterval || streamMode !== "snapshot") return;
     const timer = setInterval(captureSnapshot, refreshInterval * 1000);
     return () => clearInterval(timer);
-  }, [refreshInterval, captureSnapshot]);
+  }, [refreshInterval, captureSnapshot, streamMode]);
 
   // ── Save ROI ──
   const handleSave = async () => {
@@ -236,8 +271,10 @@ export default function ROIDashboard() {
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
-      ctx.drawImage(imgRef.current, 0, 0, W, H);
+    // Draw video or image source
+    const source = streamMode === "live" ? videoRef.current : imgRef.current;
+    if (source?.complete !== false && source?.readyState >= 2) {
+      ctx.drawImage(source, 0, 0, W, H);
     } else {
       // Placeholder scene
       const grad = ctx.createLinearGradient(0, 0, 0, H);
@@ -265,30 +302,12 @@ export default function ROIDashboard() {
       }
       ctx.setLineDash([]);
 
-      // Simulated vehicles
-      const vehicles = [[0.22, 0.55, 0.14, 0.20], [0.52, 0.52, 0.13, 0.18], [0.78, 0.57, 0.12, 0.17]];
-      vehicles.forEach(([cx, cy, rw, rh]) => {
-        const vx = (cx - rw / 2) * W, vy = (cy - rh / 2) * H, vw = rw * W, vh = rh * H;
-        ctx.fillStyle = "rgba(20,35,65,0.7)";
-        ctx.fillRect(vx, vy, vw, vh);
-        ctx.strokeStyle = "rgba(16,185,129,0.18)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(vx, vy, vw, vh);
-        // Plate hint
-        const pw = vw * 0.55, ph = vh * 0.22;
-        const px = vx + (vw - pw) / 2, py = vy + vh * 0.65;
-        ctx.fillStyle = "rgba(37,99,235,0.15)";
-        ctx.fillRect(px, py, pw, ph);
-        ctx.strokeStyle = "rgba(37,99,235,0.30)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(px, py, pw, ph);
-      });
-
       // No-feed label
       ctx.font = "bold 13px 'JetBrains Mono', monospace";
       ctx.fillStyle = "rgba(255,255,255,0.10)";
       ctx.textAlign = "center";
-      ctx.fillText("กด Capture Snapshot เพื่อดึงภาพจริง", W / 2, H - 18);
+      const modeText = streamMode === "live" ? "กำลังเชื่อมต่อ live stream..." : "กด Capture Snapshot";
+      ctx.fillText(modeText, W / 2, H - 18);
       ctx.textAlign = "left";
     }
 
@@ -304,7 +323,7 @@ export default function ROIDashboard() {
     ctx.fillStyle = "rgba(37,99,235,0.05)";
     ctx.fillRect(rx1, ry1, rx2 - rx1, ry2 - ry1);
 
-    // ROI border (animated dashes)
+    // ROI border
     ctx.strokeStyle = C.blueBright;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([8, 4]);
@@ -337,11 +356,11 @@ export default function ROIDashboard() {
     ctx.fillText(`(${roi.x1.toFixed(2)}, ${roi.y1.toFixed(2)}) → (${roi.x2.toFixed(2)}, ${roi.y2.toFixed(2)})`, rx1 + 10, ry1 + 32);
     ctx.fillText(`${((roi.x2 - roi.x1) * 100).toFixed(0)}% × ${((roi.y2 - roi.y1) * 100).toFixed(0)}% of frame`, rx1 + 10, ry1 + 44);
 
-    // Camera name + time overlay
+    // Camera name + time + mode overlay
     const cam = cameras?.find(c => c.id === selectedCam);
     ctx.font = "bold 10px 'JetBrains Mono', monospace";
     ctx.fillStyle = "rgba(255,255,255,0.30)";
-    ctx.fillText(`● ${cam?.name || selectedCam}`, 10, 18);
+    ctx.fillText(`● ${cam?.name || selectedCam} [${streamMode.toUpperCase()}]`, 10, 18);
     const now = new Date().toLocaleTimeString("th-TH", { hour12: false });
     ctx.textAlign = "right";
     ctx.fillText(now, W - 10, 18);
@@ -366,18 +385,21 @@ export default function ROIDashboard() {
       ctx.fillText("⏳ Capturing snapshot...", W / 2, H / 2);
       ctx.textAlign = "left";
     }
-  }, [roi, cameras, selectedCam, hasChanges, snapshotLoading]);
-
-  useEffect(() => { drawCanvas(); }, [drawCanvas]);
+  }, [roi, cameras, selectedCam, hasChanges, snapshotLoading, streamMode]);
 
   useEffect(() => {
-    if (!snapshotUrl) return;
-    const img = new Image();
-    img.onload = () => { imgRef.current = img; drawCanvas(); };
-    img.src = snapshotUrl;
-  }, [snapshotUrl, drawCanvas]);
+    const interval = setInterval(drawCanvas, streamMode === "live" ? 33 : 100); // 30fps for live, 10fps for snapshot
+    return () => clearInterval(interval);
+  }, [drawCanvas, streamMode]);
 
-  // ── Mouse hit detection ──
+  useEffect(() => {
+    if (!snapshotUrl || streamMode !== "snapshot") return;
+    const img = new Image();
+    img.onload = () => { imgRef.current = img; };
+    img.src = snapshotUrl;
+  }, [snapshotUrl, streamMode]);
+
+  // ── Mouse handlers (unchanged from original) ──
   const getHitTarget = useCallback((mx, my) => {
     const W = CANVAS_W, H = CANVAS_H;
     const rx1 = roi.x1 * W, ry1 = roi.y1 * H, rx2 = roi.x2 * W, ry2 = roi.y2 * H;
@@ -401,7 +423,10 @@ export default function ROIDashboard() {
     return null;
   }, [roi]);
 
-  const CURSOR_MAP = { tl: "nw-resize", tr: "ne-resize", bl: "sw-resize", br: "se-resize", t: "n-resize", b: "s-resize", l: "w-resize", r: "e-resize", move: "grab" };
+  const CURSOR_MAP = { 
+    tl: "nw-resize", tr: "ne-resize", bl: "sw-resize", br: "se-resize", 
+    t: "n-resize", b: "s-resize", l: "w-resize", r: "e-resize", move: "grab" 
+  };
 
   const getEventPos = (e) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -534,32 +559,57 @@ export default function ROIDashboard() {
 
         {/* ── MAIN ── */}
         <div style={{ flex: 1, padding: 20, overflowY: "auto" }}>
-          {/* Snapshot toolbar */}
+          {/* Stream mode toggle + controls */}
           <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
-            <button onClick={captureSnapshot} disabled={snapshotLoading} style={{
-              padding: "7px 14px", borderRadius: 6,
-              border: `1px solid ${snapshotLoading ? C.dim : C.blue}`,
-              background: snapshotLoading ? "transparent" : C.blueGlow,
-              color: snapshotLoading ? C.dim : C.blueBright,
-              fontSize: 12, fontWeight: 700, cursor: snapshotLoading ? "wait" : "pointer",
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
-              {snapshotLoading ? "⏳ Capturing..." : "📸 Capture Snapshot"}
-            </button>
-
+            {/* Stream Mode Toggle */}
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ fontSize: 10, color: C.dim }}>Auto-refresh:</span>
-              {[null, 5, 10, 30].map(sec => (
-                <button key={sec ?? "off"} onClick={() => setRefreshInterval(sec)} style={{
-                  padding: "4px 9px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "pointer",
-                  border: `1px solid ${refreshInterval === sec ? C.blue : C.cardBorder}`,
-                  background: refreshInterval === sec ? C.blueGlow : "transparent",
-                  color: refreshInterval === sec ? C.blueBright : C.dim,
-                }}>
-                  {sec ? `${sec}s` : "Off"}
+              <span style={{ fontSize: 10, color: C.dim }}>Mode:</span>
+              {["live", "snapshot"].map(mode => (
+                <button 
+                  key={mode} 
+                  onClick={() => setStreamMode(mode)} 
+                  disabled={mode === "live" && !ENABLE_MJPEG_STREAM}
+                  style={{
+                    padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    border: `1px solid ${streamMode === mode ? C.blue : C.cardBorder}`,
+                    background: streamMode === mode ? C.blueGlow : "transparent",
+                    color: streamMode === mode ? C.blueBright : C.dim,
+                    opacity: mode === "live" && !ENABLE_MJPEG_STREAM ? 0.5 : 1,
+                  }}
+                >
+                  {mode === "live" ? "🎥 Live Stream" : "📸 Snapshot"}
                 </button>
               ))}
             </div>
+
+            {streamMode === "snapshot" && (
+              <>
+                <button onClick={captureSnapshot} disabled={snapshotLoading} style={{
+                  padding: "7px 14px", borderRadius: 6,
+                  border: `1px solid ${snapshotLoading ? C.dim : C.blue}`,
+                  background: snapshotLoading ? "transparent" : C.blueGlow,
+                  color: snapshotLoading ? C.dim : C.blueBright,
+                  fontSize: 12, fontWeight: 700, cursor: snapshotLoading ? "wait" : "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  {snapshotLoading ? "⏳ Capturing..." : "📸 Capture"}
+                </button>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 10, color: C.dim }}>Auto-refresh:</span>
+                  {[null, 5, 10, 30].map(sec => (
+                    <button key={sec ?? "off"} onClick={() => setRefreshInterval(sec)} style={{
+                      padding: "4px 9px", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                      border: `1px solid ${refreshInterval === sec ? C.blue : C.cardBorder}`,
+                      background: refreshInterval === sec ? C.blueGlow : "transparent",
+                      color: refreshInterval === sec ? C.blueBright : C.dim,
+                    }}>
+                      {sec ? `${sec}s` : "Off"}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div style={{ flex: 1 }} />
 
@@ -580,8 +630,18 @@ export default function ROIDashboard() {
             ))}
           </div>
 
-          {/* Canvas + snapshot error */}
+          {/* Canvas + video/snapshot + errors */}
           <div style={{ position: "relative", marginBottom: 16 }}>
+            {/* Hidden video element for live stream */}
+            {streamMode === "live" && streamUrl && (
+              <img
+                ref={videoRef}
+                src={streamUrl}
+                style={{ display: "none" }}
+                alt="Live stream"
+              />
+            )}
+
             <canvas
               ref={canvasRef}
               width={CANVAS_W}
@@ -595,7 +655,9 @@ export default function ROIDashboard() {
                 borderRadius: 8, border: `1px solid ${C.cardBorder}`,
               }}
             />
-            {snapshotError && <SnapshotError message={snapshotError} />}
+            
+            {snapshotError && streamMode === "snapshot" && <SnapshotError message={snapshotError} />}
+            {streamError && streamMode === "live" && <SnapshotError message={streamError} />}
           </div>
 
           {/* Controls row */}
@@ -694,13 +756,15 @@ export default function ROIDashboard() {
               💡 Tips
             </div>
             <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.9 }}>
+              • <strong style={{ color: C.text }}>Live Stream:</strong> แสดงวิดีโอแบบเรียลไทม์ (ต้องเปิด RTSP producer)
+              <br />
+              • <strong style={{ color: C.text }}>Snapshot:</strong> แคปภาพเฟรมเดียว พร้อม auto-refresh
+              <br />
               • ลาก <strong style={{ color: C.text }}>มุม</strong> เพื่อย่อ/ขยาย &nbsp;|&nbsp;
               ลาก <strong style={{ color: C.text }}>ขอบ</strong> เพื่อปรับด้านเดียว &nbsp;|&nbsp;
               ลาก <strong style={{ color: C.text }}>ตรงกลาง</strong> เพื่อเลื่อน ROI ทั้งกรอบ
               <br />
-              • Snapshot จะล้มเหลวถ้า camera offline — ปรับ ROI จากพิกัดได้เลย แล้วค่อย Apply
-              <br />
-              • ROI ที่ดี: ครอบคลุมตำแหน่งที่เห็นป้ายทะเบียน<strong style={{ color: C.text }}>ชัดที่สุด</strong> — ไม่กว้างเกินไป ไม่แคบเกินไป
+              • ROI ที่ดี: ครอบคลุมตำแหน่งที่เห็นป้ายทะเบียน<strong style={{ color: C.text }}>ชัดที่สุด</strong>
             </div>
           </div>
         </div>

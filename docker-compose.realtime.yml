@@ -43,6 +43,7 @@ services:
     user: "1000:1000"
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: DEBUG
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -163,6 +164,8 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: DEBUG
+      RTSP_DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -219,6 +222,7 @@ services:
 
     volumes:
       - ./storage:/storage
+      - ./debug-logs:/logs
     command:
       - python
       - -m
@@ -243,6 +247,8 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: DEBUG
+      RTSP_DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -274,6 +280,9 @@ services:
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
+      # ===== ROI: ค่า ENV เป็น fallback =====
+      # ถ้า Redis มีค่า (จาก Dashboard) → ใช้ Redis
+      # ถ้า Redis ไม่มี → fallback ใช้ ENV ตรงนี้
       RTSP_ROI_ENABLED: "true"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
@@ -296,6 +305,7 @@ services:
 
     volumes:
       - ./storage:/storage
+      - ./debug-logs:/logs
     command:
       - python
       - -m
@@ -320,6 +330,8 @@ services:
       context: ./worker
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: DEBUG
+      RTSP_DEBUG: "true"
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
@@ -373,6 +385,7 @@ services:
 
     volumes:
       - ./storage:/storage
+      - ./debug-logs:/logs
     command:
       - python
       - -m
@@ -423,13 +436,45 @@ services:
       context: ./frontend
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: DEBUG
       VITE_API_BASE: http://10.32.70.136:8000
       VITE_PROXY_TARGET: http://backend:8000
       VITE_ENABLE_MJPEG_STREAM: "true"
+            # Debug features
+      VITE_DEBUG_ROI: "true"
+      VITE_SHOW_FPS: "true"
+
+          # Keep container running for logs
+    tty: true
+    stdin_open: true
+
     ports:
       - "5173:5173"
     depends_on:
       - backend
+    networks:
+      - alpr-network
+
+  stream-monitor:
+    image: alpine:latest
+    command: >
+      sh -c "
+        while true; do
+          echo '=== Stream Stats $(date) ===';
+          echo 'PCN_Lane4:';
+          ls -lht /storage/rtsp/PCN_Lane4 | head -3;
+          echo '';
+          echo 'PCN_Lane5:';
+          ls -lht /storage/rtsp/PCN_Lane5 | head -3;
+          echo '';
+          echo 'PCN_Lane6:';
+          ls -lht /storage/rtsp/PCN_Lane6 | head -3;
+          echo '';
+          sleep 10;
+        done
+      "
+    volumes:
+      - ./storage:/storage
     networks:
       - alpr-network
 
