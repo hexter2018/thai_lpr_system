@@ -323,23 +323,48 @@ export default function ROIDashboard() {
   }, [selectedCam]);
 
   // ── WebSocket (primary tracking source) ──
+  // ใช้ exponential backoff + หยุดหลัง 3 fails (ไม่ spam console)
   useEffect(() => {
     if (!selectedCam) return;
     let active = true, ws = null, reconnectTimer = null;
+    let failCount = 0;
+    const MAX_FAILS = 3;       // หลังจากนี้หยุด retry WS
+    const BASE_DELAY = 3000;   // 3s, 6s, 12s …
 
     const connect = () => {
       if (!active) return;
+      // ถ้า fail เกิน MAX_FAILS → ใช้ client tracking แทนถาวร ไม่ reconnect
+      if (failCount >= MAX_FAILS) {
+        if (active) setTrackingSource(prev => prev !== "websocket" ? "client" : prev);
+        return;
+      }
       try { ws = new WebSocket(`${WS_BASE}/ws/cameras/${encodeURIComponent(selectedCam)}`); }
-      catch (_) { reconnectTimer = setTimeout(connect, 3000); return; }
+      catch (_) {
+        failCount++;
+        if (active) reconnectTimer = setTimeout(connect, BASE_DELAY * Math.min(failCount, 4));
+        return;
+      }
 
-      ws.onopen = () => { setWsConnected(true); setTrackingSource("websocket"); };
+      ws.onopen = () => {
+        failCount = 0; // reset on success
+        setWsConnected(true);
+        setTrackingSource("websocket");
+      };
       ws.onclose = () => {
         setWsConnected(false);
-        // ถ้า WebSocket ตาย → fallback client-side tracking
-        if (active && streamMode === "live") setTrackingSource("client");
-        if (active) reconnectTimer = setTimeout(connect, 3000);
+        failCount++;
+        if (active && failCount >= MAX_FAILS) {
+          // หยุด retry — fallback client-side tracking
+          setTrackingSource(prev => prev !== "websocket" ? prev : "client");
+          return;
+        }
+        const delay = BASE_DELAY * Math.min(failCount, 4);
+        if (active) reconnectTimer = setTimeout(connect, delay);
       };
-      ws.onerror = () => setWsConnected(false);
+      ws.onerror = () => {
+        // onerror always followed by onclose — don't double-count
+        setWsConnected(false);
+      };
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
@@ -352,41 +377,54 @@ export default function ROIDashboard() {
       };
     };
 
-    const t = setTimeout(connect, 200);
+    // เริ่ม connect ครั้งแรกหลัง 500ms (ให้ component mount ก่อน)
+    const t = setTimeout(connect, 500);
     return () => {
       active = false; clearTimeout(t);
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (ws) ws.close();
+      if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
     };
-  }, [selectedCam, streamMode]);
+  }, [selectedCam]); // ไม่ใส่ streamMode → ไม่ restart WS ทุกครั้งที่ toggle mode
 
   // ── Client-side motion tracking loop (fallback) ──
+  // ใช้ ref แทน state ใน dep เพื่อไม่ให้ restart ทุกครั้งที่ trackingSource เปลี่ยน
+  const trackingSourceRef = useRef("none");
+  useEffect(() => { trackingSourceRef.current = trackingSource; }, [trackingSource]);
+
   useEffect(() => {
-    if (streamMode !== "live" || trackingSource === "websocket") return;
+    if (streamMode !== "live") return;
     setClientTrackingActive(true);
     let rafId = null;
+    let lastDetectTime = 0;
+    const DETECT_INTERVAL = 150; // ms — ≈6fps พอสำหรับ motion
 
-    const tick = () => {
-      const source = imgRef.current;
-      if (source && source.naturalWidth > 0) {
-        try {
-          const objs = motionTrackerRef.current.detect(source, CANVAS_W, CANVAS_H);
-          // กรองเฉพาะ track ที่ age > 1 (เพื่อลด noise)
-          const stable = objs.filter(o => {
-            const t = motionTrackerRef.current.tracks.get(Number(o.track_id));
-            return t && t.age >= 1;
-          });
-          setTrackedObjects(stable);
-          if (stable.length > 0) setTrackingSource("client");
-        } catch (_) {}
-      }
+    const tick = (timestamp) => {
       rafId = requestAnimationFrame(tick);
+      if (timestamp - lastDetectTime < DETECT_INTERVAL) return;
+      lastDetectTime = timestamp;
+      // ถ้า WS ทำงานอยู่ → ไม่ต้องทำ client tracking
+      if (trackingSourceRef.current === "websocket") return;
+      const source = imgRef.current;
+      if (!source || source.naturalWidth === 0) return;
+      try {
+        const objs = motionTrackerRef.current.detect(source, CANVAS_W, CANVAS_H);
+        const stable = objs.filter(o => {
+          const t = motionTrackerRef.current.tracks.get(Number(o.track_id));
+          return t && t.age >= 1;
+        });
+        setTrackedObjects(stable);
+        setTrackingSource(prev => prev === "websocket" ? prev : "client");
+      } catch (_) {}
     };
 
     rafId = requestAnimationFrame(tick);
     animFrameRef.current = rafId;
-    return () => { cancelAnimationFrame(rafId); setClientTrackingActive(false); };
-  }, [streamMode, trackingSource, selectedCam]);
+    return () => {
+      cancelAnimationFrame(rafId);
+      setClientTrackingActive(false);
+      setTrackedObjects([]);
+    };
+  }, [streamMode, selectedCam]); // ไม่ใส่ trackingSource → ใช้ ref แทน
 
   // ── Capture snapshot ──
   const captureSnapshot = useCallback(async () => {
@@ -797,7 +835,8 @@ export default function ROIDashboard() {
           {/* Canvas */}
           <div style={{ position: "relative", marginBottom: 16 }}>
             {streamMode === "live" && streamUrl && (
-              <img ref={imgRef} src={streamUrl} style={{ display: "none" }}
+              <img ref={imgRef} src={streamUrl}
+                style={{ position: "absolute", top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
                 onError={() => setStreamError("Stream unavailable")}
                 onLoad={() => setStreamError(null)} alt="" />
             )}
