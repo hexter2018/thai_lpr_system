@@ -9,7 +9,7 @@ const API_BASE = window.location.origin.includes("localhost")
 // ─── API FUNCTIONS ───────────────────────────────────────────
 async function fetchCameras() {
   try {
-    const res = await fetch(`${API_BASE}/api/cameras`);
+    const res = await fetch(`${API_BASE}/api/roi-agent/cameras`);
     if (!res.ok) throw new Error(`${res.status}`);
     return await res.json();
   } catch (e) {
@@ -20,7 +20,7 @@ async function fetchCameras() {
 
 async function fetchSnapshot(cameraId) {
   try {
-    const res = await fetch(`${API_BASE}/api/snapshot/${cameraId}?width=1280&t=${Date.now()}`);
+    const res = await fetch(`${API_BASE}/api/roi-agent/snapshot/${cameraId}?width=1280&t=${Date.now()}`);
     if (!res.ok) throw new Error(`${res.status}`);
     const blob = await res.blob();
     return URL.createObjectURL(blob);
@@ -32,7 +32,7 @@ async function fetchSnapshot(cameraId) {
 
 async function fetchRoi(cameraId) {
   try {
-    const res = await fetch(`${API_BASE}/api/roi/${cameraId}`);
+    const res = await fetch(`${API_BASE}/api/roi-agent/config/${cameraId}`);
     if (!res.ok) throw new Error(`${res.status}`);
     return await res.json();
   } catch (e) {
@@ -43,7 +43,7 @@ async function fetchRoi(cameraId) {
 
 async function saveRoi(cameraId, roi) {
   try {
-    const res = await fetch(`${API_BASE}/api/roi/${cameraId}`, {
+    const res = await fetch(`${API_BASE}/api/roi-agent/config/${cameraId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(roi),

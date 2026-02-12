@@ -19,7 +19,7 @@ app.include_router(api_router, prefix="/api")
 
 
 try:
-    from app.api.routers.roi_api import router as roi_router
+    from app.api.routes.roi_api import router as roi_router
     app.include_router(roi_router)
     import logging
     logging.getLogger(__name__).info("ROI Agent API loaded: /api/roi-agent/*")
