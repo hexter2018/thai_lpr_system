@@ -20,6 +20,7 @@ def get_report_stats(
     end_date: Optional[str] = Query(None, description="YYYY-MM-DD"),
     province: Optional[str] = Query(None),
     camera_id: Optional[str] = Query(None),
+    since_ts: Optional[str] = Query(None, description="ISO timestamp filter (inclusive)"),
     db: Session = Depends(get_db)
 ):
     """Get statistics for reports with optional filters"""
@@ -175,6 +176,14 @@ def get_activity_log(
     
     if camera_id:
         query = query.filter(models.Capture.camera_id == camera_id)
+
+    if since_ts:
+        try:
+            since_dt = datetime.fromisoformat(since_ts.replace("Z", "+00:00"))
+            query = query.filter(models.PlateRead.created_at >= since_dt)
+        except ValueError:
+            pass  # Ignore invalid timestamp format
+
     activities = query.order_by(
         desc(models.PlateRead.created_at)
     ).limit(limit).all()

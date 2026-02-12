@@ -7,8 +7,12 @@ const API_BASE = (() => {
   return window.location.origin.replace(/\/$/, "");
 })();
 
+const WS_BASE = ((import.meta.env.VITE_WS_BASE || "").trim() || window.location.origin.replace(/^http/, "ws")).replace(/\/$/, "");
+
 const ENABLE_MJPEG_STREAM =
   String(import.meta.env.VITE_ENABLE_MJPEG_STREAM || "true").toLowerCase() === "true";
+
+const MAX_CAPTURED_TRACKS = 30;
 
 // ─── API FUNCTIONS ───────────────────────────────────────────
 function normalizeCamera(cam) {
@@ -168,9 +172,12 @@ export default function ROIDashboard() {
   const [useMock, setUseMock] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(null);
   const [connected, setConnected] = useState(false);
-  const [recentCars, setRecentCars] = useState([]);
-  const [capturedCars, setCapturedCars] = useState({});
-  const seenCarIdsRef = useRef(new Set());  
+  const [trackedObjects, setTrackedObjects] = useState([]);
+  const [triggerLine, setTriggerLine] = useState({ p1: { x: 0.20, y: 0.76 }, p2: { x: 0.88, y: 0.76 } });
+  const [editMode, setEditMode] = useState("roi"); // roi | trigger
+  const [capturedTracks, setCapturedTracks] = useState({});
+  const [wsConnected, setWsConnected] = useState(false);
+  const trackStateRef = useRef({});
 
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
@@ -219,14 +226,140 @@ export default function ROIDashboard() {
     setSnapshotError(null);
     setStreamError(null);
     setSaveResult(null);
-    setRecentCars([]);
-    setCapturedCars({});
-    seenCarIdsRef.current = new Set();
+    setTrackedObjects([]);
+    setCapturedTracks({});
+    setWsConnected(false);
+    trackStateRef.current = {};
     (async () => {
       const data = await fetchRoi(selectedCam);
       if (data) { setRoi(data); setSavedRoi(data); }
     })();
   }, [selectedCam]);
+
+
+  // ── Tracking stream via WebSocket (track_id based) ──
+  useEffect(() => {
+    if (!selectedCam || !WS_BASE) return;
+
+    const wsUrl = `${WS_BASE}/ws/cameras/${encodeURIComponent(selectedCam)}`;
+    let ws = null;
+    let active = true;
+    let reconnectTimer = null;
+
+    const connect = () => {
+      if (!active) return;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (_) {
+        reconnectTimer = setTimeout(connect, 2000);
+        return;
+      }
+
+      ws.onopen = () => setWsConnected(true);
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (active) reconnectTimer = setTimeout(connect, 2000);
+      };
+      ws.onerror = () => {
+        setWsConnected(false);
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg?.camera_id === selectedCam && Array.isArray(msg.objects)) {
+            const cleaned = msg.objects.filter((obj) =>
+              obj && typeof obj.track_id !== "undefined" && Array.isArray(obj.bbox) && obj.bbox.length === 4
+            );
+            setTrackedObjects(cleaned);
+          }
+        } catch (_) {}
+      };
+    };
+
+    const bootTimer = setTimeout(connect, 150);
+
+    return () => {
+      active = false;
+      clearTimeout(bootTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
+  }, [selectedCam]);
+
+  const captureRawFrame = useCallback(() => {
+    const source = streamMode === "live" ? videoRef.current : imgRef.current;
+    if (!source) return null;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = CANVAS_W;
+    canvas.height = CANVAS_H;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    const canDrawVideo =
+      source instanceof HTMLVideoElement && source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+    const canDrawImage = source instanceof HTMLImageElement && source.complete;
+    if (!canDrawVideo && !canDrawImage) return null;
+
+    ctx.drawImage(source, 0, 0, CANVAS_W, CANVAS_H);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  }, [streamMode]);
+
+  // ── Trigger capture by line crossing (one shot per track_id) ──
+  useEffect(() => {
+    if (streamMode !== "live") return;
+
+    const sideOfLine = (pt) => {
+      const ax = triggerLine.p1.x, ay = triggerLine.p1.y;
+      const bx = triggerLine.p2.x, by = triggerLine.p2.y;
+      return (bx - ax) * (pt.y - ay) - (by - ay) * (pt.x - ax);
+    };
+
+    const now = Date.now();
+    const nextTrackState = { ...trackStateRef.current };
+
+    trackedObjects.forEach((obj) => {
+      if (!obj || typeof obj.track_id === "undefined" || !Array.isArray(obj.bbox)) return;
+      const [x1, y1, x2, y2] = obj.bbox;
+      const center = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+      const side = sideOfLine(center);
+      const key = String(obj.track_id);
+      const prev = nextTrackState[key];
+
+      const movedEnough = prev ? Math.hypot(center.x - prev.center.x, center.y - prev.center.y) >= 0.01 : false;
+      const crossed = prev && side * prev.side < 0 && movedEnough;
+      const cooldownPassed = !prev?.lastCrossTs || now - prev.lastCrossTs > 1500;
+
+      if (crossed && cooldownPassed) {
+        setCapturedTracks((old) => {
+          if (old[key]) return old;
+          const snapshot = captureRawFrame();
+          const next = {
+            ...old,
+            [key]: {
+              track_id: key,
+              ts: new Date().toISOString(),
+              ts_ms: now,
+              image: snapshot,
+            },
+          };
+          const entries = Object.entries(next)
+            .sort((a, b) => (b[1].ts_ms || 0) - (a[1].ts_ms || 0))
+            .slice(0, MAX_CAPTURED_TRACKS);
+          return Object.fromEntries(entries);
+        });
+        nextTrackState[key] = { side, center, ts: now, lastCrossTs: now };
+      } else {
+        nextTrackState[key] = { side, center, ts: now, lastCrossTs: prev?.lastCrossTs || 0 };
+      }
+    });
+
+    Object.keys(nextTrackState).forEach((k) => {
+      if (now - (nextTrackState[k]?.ts || 0) > 10000) delete nextTrackState[k];
+    });
+
+    trackStateRef.current = nextTrackState;
+  }, [trackedObjects, triggerLine, streamMode, captureRawFrame]);
 
 // ── Poll latest car IDs and keep first snapshot per ID ──
   useEffect(() => {
@@ -438,6 +571,43 @@ export default function ROIDashboard() {
     ctx.fillText(now, W - 10, 18);
     ctx.textAlign = "left";
 
+    // Tracking boxes + track IDs
+    trackedObjects.forEach((obj) => {
+      if (!Array.isArray(obj?.bbox)) return;
+      const [x1, y1, x2, y2] = obj.bbox;
+      const bx = x1 * W, by = y1 * H, bw = (x2 - x1) * W, bh = (y2 - y1) * H;
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bx, by, bw, bh);
+      const label = `TID ${obj.track_id}`;
+      ctx.fillStyle = "rgba(245,158,11,0.2)";
+      ctx.fillRect(bx, Math.max(0, by - 14), 70, 12);
+      ctx.fillStyle = "#fbbf24";
+      ctx.font = "bold 10px 'JetBrains Mono', monospace";
+      ctx.fillText(label, bx + 4, Math.max(10, by - 4));
+    });
+
+    // Trigger line overlay
+    const l1x = triggerLine.p1.x * W, l1y = triggerLine.p1.y * H;
+    const l2x = triggerLine.p2.x * W, l2y = triggerLine.p2.y * H;
+    ctx.strokeStyle = "#22d3ee";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.moveTo(l1x, l1y);
+    ctx.lineTo(l2x, l2y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    [ [l1x, l1y], [l2x, l2y] ].forEach(([x,y]) => {
+      ctx.fillStyle = "#67e8f9";
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.fillStyle = "#67e8f9";
+    ctx.font = "bold 10px 'JetBrains Mono', monospace";
+    ctx.fillText("TRIGGER LINE", l1x + 8, l1y - 8);
+
     // Car IDs overlay
     const hotCars = recentCars.slice(0, 4);
     if (hotCars.length > 0) {
@@ -471,7 +641,7 @@ export default function ROIDashboard() {
       ctx.fillText("⏳ Capturing snapshot...", W / 2, H / 2);
       ctx.textAlign = "left";
     }
-  }, [roi, cameras, selectedCam, hasChanges, snapshotLoading, streamMode, isDrawableSourceReady, recentCars]);
+  }, [roi, cameras, selectedCam, hasChanges, snapshotLoading, streamMode, isDrawableSourceReady, trackedObjects, triggerLine]);
 
   useEffect(() => {
     const interval = setInterval(drawCanvas, streamMode === "live" ? 33 : 100); // 30fps for live, 10fps for snapshot
@@ -485,7 +655,7 @@ export default function ROIDashboard() {
     img.src = snapshotUrl;
   }, [snapshotUrl, streamMode]);
 
-  // ── Mouse handlers (unchanged from original) ──
+  // ── Mouse handlers  ──
   const getHitTarget = useCallback((mx, my) => {
     const W = CANVAS_W, H = CANVAS_H;
     const rx1 = roi.x1 * W, ry1 = roi.y1 * H, rx2 = roi.x2 * W, ry2 = roi.y2 * H;
@@ -509,10 +679,28 @@ export default function ROIDashboard() {
     return null;
   }, [roi]);
 
-  const CURSOR_MAP = { 
-    tl: "nw-resize", tr: "ne-resize", bl: "sw-resize", br: "se-resize", 
-    t: "n-resize", b: "s-resize", l: "w-resize", r: "e-resize", move: "grab" 
+  const CURSOR_MAP = {
+    tl: "nw-resize", tr: "ne-resize", bl: "sw-resize", br: "se-resize",
+    t: "n-resize", b: "s-resize", l: "w-resize", r: "e-resize", move: "grab",
+    p1: "grab", p2: "grab", line: "move"
   };
+
+    const getLineHitTarget = useCallback((mx, my) => {
+    const p1 = { x: triggerLine.p1.x * CANVAS_W, y: triggerLine.p1.y * CANVAS_H };
+    const p2 = { x: triggerLine.p2.x * CANVAS_W, y: triggerLine.p2.y * CANVAS_H };
+    const T = 14;
+    if (Math.hypot(mx - p1.x, my - p1.y) <= T) return "p1";
+    if (Math.hypot(mx - p2.x, my - p2.y) <= T) return "p2";
+
+    const vx = p2.x - p1.x;
+    const vy = p2.y - p1.y;
+    const len2 = vx * vx + vy * vy;
+    if (len2 < 1) return null;
+    const t = Math.max(0, Math.min(1, ((mx - p1.x) * vx + (my - p1.y) * vy) / len2));
+    const px = p1.x + t * vx, py = p1.y + t * vy;
+    const d = Math.hypot(mx - px, my - py);
+    return d <= 10 ? "line" : null;
+  }, [triggerLine]);
 
   const getEventPos = (e) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -523,21 +711,47 @@ export default function ROIDashboard() {
 
   const handleMouseDown = (e) => {
     const { mx, my } = getEventPos(e);
+        if (editMode === "trigger") {
+      const target = getLineHitTarget(mx, my);
+      if (target) {
+        setDragging({ target, mode: "trigger", startMx: mx, startMy: my, startLine: { ...triggerLine, p1: { ...triggerLine.p1 }, p2: { ...triggerLine.p2 } } });
+      }
+      return;
+    }
+
     const target = getHitTarget(mx, my);
-    if (target) setDragging({ target, startMx: mx, startMy: my, startRoi: { ...roi } });
+    if (target) setDragging({ target, mode: "roi", startMx: mx, startMy: my, startRoi: { ...roi } });
   };
 
   const handleMouseMove = (e) => {
     const { mx, my } = getEventPos(e);
     if (!dragging) {
-      const target = getHitTarget(mx, my);
-      if (canvasRef.current) canvasRef.current.style.cursor = CURSOR_MAP[target] || "crosshair";
+            const target = editMode === "trigger" ? getLineHitTarget(mx, my) : getHitTarget(mx, my);
+      if (canvasRef.current) canvasRef.current.style.cursor = CURSOR_MAP[target] || (editMode === "trigger" ? "default" : "crosshair");
+      return;
+    }
+
+    const cl = (v) => Math.max(0, Math.min(1, v));
+
+    if (dragging.mode === "trigger") {
+      const dx = (mx - dragging.startMx) / CANVAS_W;
+      const dy = (my - dragging.startMy) / CANVAS_H;
+      const s = dragging.startLine;
+      if (dragging.target === "p1") {
+        setTriggerLine({ ...s, p1: { x: cl(s.p1.x + dx), y: cl(s.p1.y + dy) } });
+      } else if (dragging.target === "p2") {
+        setTriggerLine({ ...s, p2: { x: cl(s.p2.x + dx), y: cl(s.p2.y + dy) } });
+      } else if (dragging.target === "line") {
+        const nx1 = cl(s.p1.x + dx), ny1 = cl(s.p1.y + dy);
+        const nx2 = cl(s.p2.x + dx), ny2 = cl(s.p2.y + dy);
+        setTriggerLine({ p1: { x: nx1, y: ny1 }, p2: { x: nx2, y: ny2 } });
+      }
       return;
     }
     const dx = (mx - dragging.startMx) / CANVAS_W;
     const dy = (my - dragging.startMy) / CANVAS_H;
     const s = dragging.startRoi;
-    const cl = (v) => Math.max(0, Math.min(1, v));
+    
     let n = { ...roi };
     switch (dragging.target) {
       case "tl": n = { ...n, x1: cl(s.x1 + dx), y1: cl(s.y1 + dy) }; break;
@@ -609,7 +823,14 @@ export default function ROIDashboard() {
             background: connected ? C.greenDim : C.redDim,
             color: connected ? C.green : C.red,
           }}>
-            {connected ? "● CONNECTED" : "○ OFFLINE"}
+            {connected ? "● API CONNECTED" : "○ API OFFLINE"}
+          </span>
+          <span style={{
+            fontSize: 10, padding: "3px 9px", borderRadius: 4, fontWeight: 700, letterSpacing: "0.04em",
+            background: wsConnected ? C.greenDim : C.redDim,
+            color: wsConnected ? C.green : C.red,
+          }}>
+            {wsConnected ? "● TRACKING WS" : "○ TRACKING WS"}
           </span>
         </div>
       </div>
@@ -665,6 +886,19 @@ export default function ROIDashboard() {
                 >
                   {mode === "live" ? "🎥 Live Stream" : "📸 Snapshot"}
                 </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: C.dim }}>Edit:</span>
+              {[{ key: "roi", label: "ROI" }, { key: "trigger", label: "Trigger Line" }].map(m => (
+                <button key={m.key} onClick={() => setEditMode(m.key)} style={{
+                  padding: "5px 10px", borderRadius: 5, fontSize: 10, fontWeight: 700,
+                  border: `1px solid ${editMode === m.key ? C.blue : C.cardBorder}`,
+                  background: editMode === m.key ? C.blueGlow : "transparent",
+                  color: editMode === m.key ? C.blueBright : C.dim,
+                  cursor: "pointer"
+                }}>{m.label}</button>
               ))}
             </div>
 
@@ -836,52 +1070,52 @@ export default function ROIDashboard() {
             </div>
           </div>
 
-          {/* Car IDs + one-shot snapshots */}
+          {/* Track IDs + trigger captures */}
           <div style={{
             marginTop: 16,
             background: C.card, borderRadius: 8, padding: 14,
             border: `1px solid ${C.cardBorder}`
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              🚗 Live Car IDs (capture once per ID)
+              🚗 Tracking IDs + Trigger Captures
             </div>
             <div style={{ fontSize: 11, color: C.dim, marginBottom: 10 }}>
-              แสดงรถล่าสุดจากกล้องนี้ และเก็บรูปครั้งแรกของแต่ละ Car ID เพียงครั้งเดียว
+              ใช้ Track ID จาก object tracking โดยตรง และ Capture 1 ครั้ง/ID เมื่อรถวิ่งข้ามเส้น Trigger
             </div>
 
-            <div style={{ display: "grid", gap: 8, maxHeight: 220, overflowY: "auto", marginBottom: 12 }}>
-              {recentCars.length === 0 && <div style={{ color: C.dim, fontSize: 11 }}>ยังไม่พบรถใหม่</div>}
-              {recentCars.map(car => (
-                <div key={`recent-${car.id}-${car.created_at}`} style={{
+            <div style={{ display: "grid", gap: 8, maxHeight: 180, overflowY: "auto", marginBottom: 12 }}>
+              {trackedObjects.length === 0 && <div style={{ color: C.dim, fontSize: 11 }}>ยังไม่พบ tracking object</div>}
+              {trackedObjects.map(obj => (
+                <div key={`track-${obj.track_id}`} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   border: `1px solid ${C.cardBorder}`, borderRadius: 6, padding: "6px 8px",
-                  background: "rgba(37,99,235,0.04)"
+                  background: "rgba(245,158,11,0.06)"
                 }}>
                   <div style={{ fontSize: 11, color: C.text }}>
-                    <strong style={{ color: C.blueBright }}>Car ID {car.id}</strong> · {car.plate}
+                    <strong style={{ color: "#fbbf24" }}>Track ID {obj.track_id}</strong>
                   </div>
                   <div style={{ fontSize: 10, color: C.dim }}>
-                    {(car.confidence * 100).toFixed(0)}%
+                    {capturedTracks[String(obj.track_id)] ? "captured" : "waiting"}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
-              {Object.values(capturedCars).length === 0 && (
-                <div style={{ color: C.dim, fontSize: 11 }}>ยังไม่มีภาพ snapshot ของ Car ID</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+              {Object.values(capturedTracks).length === 0 && (
+                <div style={{ color: C.dim, fontSize: 11 }}>ยังไม่มี snapshot จาก trigger line</div>
               )}
-              {Object.values(capturedCars).map(car => (
-                <div key={`capture-${car.id}`} style={{
+              {Object.values(capturedTracks).sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0)).map(track => (
+                <div key={`capture-${track.track_id}`} style={{
                   border: `1px solid ${C.cardBorder}`, borderRadius: 6, overflow: "hidden", background: C.bg
                 }}>
-                  {car.crop_url ? (
-                    <img src={car.crop_url} alt={`car-${car.id}`} style={{ width: "100%", height: 72, objectFit: "cover", display: "block" }} />
+                  {track.image ? (
+                    <img src={track.image} alt={`track-${track.track_id}`} style={{ width: "100%", height: 72, objectFit: "cover", display: "block" }} />
                   ) : (
                     <div style={{ height: 72, display: "grid", placeItems: "center", color: C.dim, fontSize: 10 }}>no image</div>
                   )}
                   <div style={{ padding: 6, fontSize: 10, color: C.text, fontFamily: "monospace" }}>
-                    ID {car.id}
+                    TID {track.track_id}
                   </div>
                 </div>
               ))}

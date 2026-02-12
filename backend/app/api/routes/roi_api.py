@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -197,7 +198,6 @@ def _snapshot_unavailable_svg(camera_id: str, width: int, reason: str) -> bytes:
 </svg>"""
     return svg.encode("utf-8")
 
-
 def _iter_rtsp_mjpeg_ffmpeg(rtsp_url: str, width: int):
     cmd = [
         "ffmpeg",
@@ -335,7 +335,11 @@ async def live_stream(camera_id: str, width: int = 1280):
     if not rtsp_url:
         raise HTTPException(400, "No RTSP URL")
 
+    if shutil.which("ffmpeg") is None:
+        raise HTTPException(503, "ffmpeg not installed")
+
     width = min(max(width, 320), 1920)
+    log.info("ROI live stream start: camera=%s width=%s", camera_id, width)
     return StreamingResponse(
         _iter_rtsp_mjpeg_ffmpeg(rtsp_url, width),
         media_type="multipart/x-mixed-replace; boundary=frame",
