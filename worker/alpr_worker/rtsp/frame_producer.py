@@ -119,6 +119,7 @@ class RTSPFrameProducer:
         
         # Redis
         self.redis = Redis.from_url(self.config.redis_url)
+        self.last_heartbeat = 0  # ← เพิ่มบรรทัดนี้
         
         # ROI Reader (Dashboard → Redis → ENV fallback)
         self._roi_reader = None
@@ -233,6 +234,21 @@ class RTSPFrameProducer:
     def _stats_key(self) -> str:
         """Redis key for stats"""
         return f"rtsp:stats:{self.camera_id}"
+    
+    def _heartbeat_key(self) -> str:
+        """Redis key for camera heartbeat (Dashboard status)"""
+        return f"alpr:camera_heartbeat:{self.camera_id}"
+    
+    def _send_heartbeat(self):
+        """Send heartbeat to Redis every 10 seconds (for Dashboard status)"""
+        now = time.time()
+        if now - self.last_heartbeat >= 10:
+            try:
+                self.redis.setex(self._heartbeat_key(), 30, str(now))
+                self.last_heartbeat = now
+                log.debug(f"[{self.camera_id}] Heartbeat sent")
+            except Exception as e:
+                log.warning(f"[{self.camera_id}] Heartbeat failed: {e}")
     
     def should_stop(self) -> bool:
         """Check if stop flag is set in Redis"""
@@ -462,6 +478,9 @@ class RTSPFrameProducer:
                 continue
             
             self.stats["frames_read"] += 1
+
+            # ─── Send heartbeat to Dashboard (every 10s) ───
+            self._send_heartbeat()
             
             # FPS throttling
             now = time.time()
