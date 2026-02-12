@@ -80,7 +80,7 @@ export default function Master() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="w-full space-y-4">
       <div className="rounded-2xl border border-emerald-300/20 bg-gradient-to-r from-emerald-600/20 to-teal-500/10 p-5">
         <h1 className="text-2xl font-semibold text-slate-100">Master Data</h1>
         <p className="text-sm text-slate-300">ฐานข้อมูลป้ายทะเบียนที่ยืนยันแล้ว พร้อมภาพตัวอย่าง</p>
@@ -102,7 +102,7 @@ export default function Master() {
       {msg && <div className="rounded-xl border border-emerald-300/40 bg-emerald-500/10 p-3 text-emerald-200">{msg}</div>}
 
       <div className="overflow-x-auto rounded-2xl border border-slate-700/50 bg-slate-900/55 shadow-lg">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[1080px]text-sm">
           <thead className="border-b border-slate-700/50 bg-slate-950/40">
             <tr>
               <th className="p-3 text-left text-slate-300">ภาพตัวอย่าง</th>
@@ -228,7 +228,7 @@ function Row({ r, onSave, onDelete, busy, onViewImage }) {
 }
 
 function ImageViewer({ src, onClose }) {
-  const [scle, setScale] = useState(1)
+  const [scale, setScale] = useState(1)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
 
