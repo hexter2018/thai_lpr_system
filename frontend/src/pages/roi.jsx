@@ -14,6 +14,51 @@ const ENABLE_MJPEG_STREAM =
 
 const MAX_CAPTURED_TRACKS = 30;
 
+function normalizeTrackedObject(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const trackId = raw.track_id ?? raw.trackId ?? raw.id;
+  if (typeof trackId === "undefined" || trackId === null) return null;
+
+  const sourceBbox = raw.bbox ?? raw.box ?? raw.rect;
+  let bbox = null;
+
+  if (Array.isArray(sourceBbox) && sourceBbox.length >= 4) {
+    bbox = sourceBbox.slice(0, 4).map((v) => Number(v));
+  } else if (sourceBbox && typeof sourceBbox === "object") {
+    const x1 = Number(sourceBbox.x1 ?? sourceBbox.left ?? sourceBbox.x ?? 0);
+    const y1 = Number(sourceBbox.y1 ?? sourceBbox.top ?? sourceBbox.y ?? 0);
+    const x2 = Number(sourceBbox.x2 ?? sourceBbox.right ?? (typeof sourceBbox.w !== "undefined" ? x1 + Number(sourceBbox.w) : NaN));
+    const y2 = Number(sourceBbox.y2 ?? sourceBbox.bottom ?? (typeof sourceBbox.h !== "undefined" ? y1 + Number(sourceBbox.h) : NaN));
+    bbox = [x1, y1, x2, y2];
+  }
+
+  if (!bbox || bbox.some((v) => Number.isNaN(v))) return null;
+  return {
+    ...raw,
+    track_id: String(trackId),
+    bbox,
+  };
+}
+
+function extractTrackedObjects(msg, selectedCam) {
+  if (!msg || typeof msg !== "object") return [];
+
+  const incomingCameraId = msg.camera_id ?? msg.cameraId ?? msg.cam_id;
+  if (incomingCameraId && String(incomingCameraId) !== String(selectedCam)) return [];
+
+  const candidates = [
+    msg.objects,
+    msg.tracks,
+    msg.data?.objects,
+    msg.data?.tracks,
+  ];
+
+  const list = candidates.find((arr) => Array.isArray(arr));
+  if (!Array.isArray(list)) return [];
+
+  return list.map(normalizeTrackedObject).filter(Boolean);
+}
+
 // ─── API FUNCTIONS ───────────────────────────────────────────
 function normalizeCamera(cam) {
   if (!cam || typeof cam !== "object") return null;
