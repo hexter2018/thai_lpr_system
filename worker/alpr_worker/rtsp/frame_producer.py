@@ -43,13 +43,14 @@ from alpr_worker.rtsp.config import RTSPConfig
 from alpr_worker.rtsp.line_trigger import VirtualLineTrigger, LineTriggerConfig
 from alpr_worker.celery_app import celery_app
 
-# ─── ROI Reader (Dashboard integration) ───
+    # ─── Zone Trigger (วิธี 3: กำหนดจุด capture แบบ polygon) ───
 try:
-    from alpr_worker.rtsp.roi_reader import ROIReader
-    ROI_READER_AVAILABLE = True
+    from alpr_worker.rtsp.zone_trigger import ZoneTrigger, load_zones_from_env
+    ZONE_TRIGGER_AVAILABLE = True
 except ImportError:
-    ROI_READER_AVAILABLE = False
-    ROIReader = None
+    ZoneTrigger = None
+    load_zones_from_env = None
+    ZONE_TRIGGER_AVAILABLE = False
 
 # Import night enhancement modules (optional)
 _NIGHT_ENHANCEMENT_IMPORT_ERRORS: Dict[str, str] = {}
@@ -166,7 +167,21 @@ class RTSPFrameProducer:
 
         # Optional virtual line trigger
         self.line_trigger = VirtualLineTrigger(LineTriggerConfig.from_env())
-        
+
+        # Optional zone trigger (วิธี 3)
+        self.zone_trigger = None
+        if ZONE_TRIGGER_AVAILABLE and load_zones_from_env is not None:
+            try:
+                zones = load_zones_from_env()
+                if zones:
+                    self.zone_trigger = ZoneTrigger(zones)
+                    log.info(
+                        "ZoneTrigger enabled: %d zones (%s)",
+                        len(zones), [z.name for z in zones]
+                    )
+            except Exception as e:
+                log.warning("ZoneTrigger init failed (disabled): %s", e)
+            
         # State
         self.cap: Optional[cv2.VideoCapture] = None
         self.running = False
@@ -502,7 +517,14 @@ class RTSPFrameProducer:
             if self.line_trigger.enabled and not self.line_trigger.check(frame, now):
                 self.stats["frames_dropped_line"] += 1
                 continue
-        
+
+            # Zone Trigger check (วิธี 3 — ทำงานแทน line trigger ถ้า enabled)
+            if self.zone_trigger is not None:
+                zone_result = self.zone_trigger.check_full(frame, now)
+                if not zone_result.triggered:
+                    self.stats["frames_dropped_line"] += 1
+                    continue
+                
             # Process frame through filters
             should_process, enhanced_frame, metadata = self._process_frame(frame)
             if not should_process:

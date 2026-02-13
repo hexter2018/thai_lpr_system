@@ -220,6 +220,12 @@ services:
       RTSP_LINE_MIN_AREA_PX: "1500"
       RTSP_LINE_COOLDOWN_SEC: "1.2"
 
+      CAPTURE_ZONE_ENABLED: "true"
+      CAPTURE_ZONE_1_POINTS: "0.10,0.50;0.30,0.50;0.30,0.85;0.10,0.85"
+      CAPTURE_ZONE_1_MIN_FILL: "0.12"
+      CAPTURE_ZONE_1_COOLDOWN: "2.0"
+
+
     volumes:
       - ./storage:/storage
       - ./debug-logs:/logs
