@@ -285,9 +285,24 @@ export default function ZoneDashboard() {
   };
 
   const copyEnv = () => {
-    navigator.clipboard.writeText(envOutput).then(() => {
-      setCopied(true); setTimeout(() => setCopied(false), 2000);
-    });
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(envOutput).then(() => {
+        setCopied(true); setTimeout(() => setCopied(false), 2000);
+      });
+    } else {
+      // Fallback: try legacy execCommand or show an error
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = envOutput;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        setCopied(true); setTimeout(() => setCopied(false), 2000);
+      } catch (e) {
+        alert("Copy failed: Clipboard API not available.");
+      }
+    }
   };
 
   if (!cameras) return (
