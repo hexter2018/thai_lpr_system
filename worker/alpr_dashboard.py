@@ -41,7 +41,22 @@ zones_config: List[Any] = []
 detector_info: Dict[str, Any] = {}
 cameras_config: List[Dict[str, Any]] = []
 _stats_history: Dict[str, deque] = {}
+_cameras_config_last_refresh: float = 0.0
 
+def _refresh_cameras_config(force: bool = False) -> None:
+    global cameras_config, _cameras_config_last_refresh
+
+    now = time.time()
+    refresh_interval = max(float(os.getenv("DASHBOARD_CAMERA_REFRESH_SEC", "10")), 1.0)
+    if not force and (now - _cameras_config_last_refresh) < refresh_interval:
+        return
+
+    refreshed = _load_cameras_from_backend()
+    if refreshed:
+        cameras_config = refreshed
+
+    _cameras_config_last_refresh = now
+    
 def _load_cameras_from_backend() -> List[Dict[str, Any]]:
     backend_api_url = os.getenv("BACKEND_API_URL", "http://backend:8000")
     endpoint = f"{backend_api_url.rstrip('/')}/api/cameras"
