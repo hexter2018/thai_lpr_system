@@ -43,6 +43,14 @@ from alpr_worker.rtsp.config import RTSPConfig
 from alpr_worker.rtsp.line_trigger import VirtualLineTrigger, LineTriggerConfig
 from alpr_worker.celery_app import celery_app
 
+# ─── ROI Reader (feature flag) ───
+try:
+    from alpr_worker.rtsp.roi_reader import ROIReader
+    ROI_READER_AVAILABLE = True
+except ImportError:
+    ROIReader = None
+    ROI_READER_AVAILABLE = False
+
 # ─── Zone Trigger (วิธี 3: กำหนดจุด capture แบบ polygon) ───
 try:
     from alpr_worker.rtsp.zone_trigger import ZoneTrigger, load_zones_from_env
