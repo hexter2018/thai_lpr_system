@@ -8,6 +8,8 @@ import time
 from collections import deque
 from datetime import timedelta, timezone
 from typing import Any, Dict, List, Optional
+from urllib.error import URLError
+from urllib.request import urlopen
 
 import cv2
 import numpy as np
@@ -40,6 +42,34 @@ detector_info: Dict[str, Any] = {}
 cameras_config: List[Dict[str, Any]] = []
 _stats_history: Dict[str, deque] = {}
 
+def _load_cameras_from_backend() -> List[Dict[str, Any]]:
+    backend_api_url = os.getenv("BACKEND_API_URL", "http://backend:8000")
+    endpoint = f"{backend_api_url.rstrip('/')}/api/cameras"
+
+    try:
+        with urlopen(endpoint, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        log.warning("Unable to load cameras from backend API (%s): %s", endpoint, exc)
+        return []
+
+    if not isinstance(payload, list):
+        log.warning("Unexpected camera payload type from backend API: %s", type(payload).__name__)
+        return []
+
+    cameras: List[Dict[str, Any]] = []
+    for camera in payload:
+        if not isinstance(camera, dict):
+            continue
+        camera_id = camera.get("camera_id") or camera.get("id")
+        if not camera_id:
+            continue
+        cameras.append({
+            "id": camera_id,
+            "name": camera.get("name") or camera_id,
+        })
+
+    return cameras
 
 def init_globals():
     global redis_client, db_session_factory, zones_config, detector_info, cameras_config
@@ -63,10 +93,12 @@ def init_globals():
         except Exception:
             zones_config = []
 
-    try:
-        cameras_config = json.loads(os.getenv("CAMERAS_CONFIG", "[]"))
-    except Exception:
-        cameras_config = []
+    cameras_config = _load_cameras_from_backend()
+    if not cameras_config:
+        try:
+            cameras_config = json.loads(os.getenv("CAMERAS_CONFIG", "[]"))
+        except Exception:
+            cameras_config = []
 
     if ALPR_MODULES_AVAILABLE and VehicleDetector:
         try:
