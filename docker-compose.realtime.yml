@@ -170,7 +170,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
 
-      NIGHT_ENHANCEMENT_AVAILABLE: "true"
+      NIGHT_ENHANCEMENT_AVAILABLE: "false"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
       NIGHT_ENHANCEMENT_END_HOUR: "6"
       
@@ -180,19 +180,19 @@ services:
       RTSP_ENABLE_MOTION_FILTER: "false"
       RTSP_MOTION_THRESHOLD: "3.0"
       
-      RTSP_ENABLE_QUALITY_FILTER: "true"
+      RTSP_ENABLE_QUALITY_FILTER: "false"
       RTSP_MIN_QUALITY_SCORE: "20.0"
       
-      RTSP_ENABLE_DEDUP: "true"
+      RTSP_ENABLE_DEDUP: "false"
       RTSP_DEDUP_CACHE_SIZE: "30"
       RTSP_DEDUP_THRESHOLD: "10"
 
-      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_ENABLED: "false"
       QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      RTSP_BESTSHOT_ENABLED: "true"
+      RTSP_BESTSHOT_ENABLED: "false"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
@@ -200,14 +200,14 @@ services:
       # ===== ROI: ค่า ENV เป็น fallback =====
       # ถ้า Redis มีค่า (จาก Dashboard) → ใช้ Redis
       # ถ้า Redis ไม่มี → fallback ใช้ ENV ตรงนี้
-      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_ENABLED: "false"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
       # ===== ROI from Redis (Dashboard integration) =====
-      RTSP_ROI_REDIS_ENABLED: "true"
+      RTSP_ROI_REDIS_ENABLED: "false"
       RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
 
       RTSP_LINE_ENABLED: "false"
@@ -283,14 +283,14 @@ services:
       # ===== ROI: ค่า ENV เป็น fallback =====
       # ถ้า Redis มีค่า (จาก Dashboard) → ใช้ Redis
       # ถ้า Redis ไม่มี → fallback ใช้ ENV ตรงนี้
-      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_ENABLED: "false"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
       # ===== ROI from Redis (Dashboard integration) =====
-      RTSP_ROI_REDIS_ENABLED: "true"
+      RTSP_ROI_REDIS_ENABLED: "false"
       RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
 
       RTSP_LINE_ENABLED: "false"
