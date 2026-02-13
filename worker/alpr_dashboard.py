@@ -57,27 +57,12 @@ def _refresh_cameras_config(force: bool = False) -> None:
 
     _cameras_config_last_refresh = now
 
-def _load_cameras_from_backend() -> List[Dict[str, Any]]:
-    backend_api_url = os.getenv("BACKEND_API_URL", "http://backend:8000")
-    endpoint = f"{backend_api_url.rstrip('/')}/api/cameras"
-
-    try:
-        with urlopen(endpoint, timeout=5) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-        log.warning("Unable to load cameras from backend API (%s): %s", endpoint, exc)
-        return []
-    
-    # Accept multiple API response shapes, e.g.:
-    # - [ ... ]
-    # - {"items": [ ... ]}
-    # - {"cameras": [ ... ]}
-    # - {"data": [ ... ]}
+def _normalize_camera_payload(payload: Any) -> List[Dict[str, Any]]:
     if isinstance(payload, dict):
         payload = payload.get("items") or payload.get("cameras") or payload.get("data") or []
-        
+
     if not isinstance(payload, list):
-        log.warning("Unexpected camera payload type from backend API: %s", type(payload).__name__)
+       
         return []
 
     cameras: List[Dict[str, Any]] = []
@@ -93,6 +78,29 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
         })
 
     return cameras
+def _load_cameras_from_backend() -> List[Dict[str, Any]]:
+    backend_api_url = os.getenv("BACKEND_API_URL") or os.getenv("BACKEND_KPI_URL") or "http://backend:8000"
+    base_url = backend_api_url.rstrip("/")
+    endpoints = [
+        f"{base_url}/api/cameras",
+        f"{base_url}/api/roi-agent/cameras",
+    ]
+
+    for endpoint in endpoints:
+        try:
+            with urlopen(endpoint, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            log.warning("Unable to load cameras from backend API (%s): %s", endpoint, exc)
+            continue
+
+        cameras = _normalize_camera_payload(payload)
+        if cameras:
+            return cameras
+
+        log.warning("Camera API returned no usable cameras: %s", endpoint)
+
+    return []
 
 def init_globals():
     global redis_client, db_session_factory, zones_config, detector_info, cameras_config
