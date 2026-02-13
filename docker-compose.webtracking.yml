@@ -1,0 +1,31 @@
+web-dashboard:
+  build:
+    context: ./worker
+  
+  environment:
+    TZ: Asia/Bangkok
+    DATABASE_URL: postgresql://alpr:alpr@postgres:5432/alpr
+    REDIS_URL: redis://redis:6379/0
+    CAMERAS_CONFIG: >
+      [
+        {"id": "PCN_Lane4", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
+        {"id": "PCN_Lane5", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
+        {"id": "PCN_Lane6", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
+      ]
+    
+    VEHICLE_TRACKING_ENABLED: "true"
+    CAPTURE_ZONE_ENABLED: "true"
+  
+  ports:
+    - "5000:5000"
+  
+  command:
+    - python
+    - web_dashboard.py
+  
+  depends_on:
+    - redis
+    - backend
+  
+  networks:
+    - alpr-network
