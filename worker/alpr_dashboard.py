@@ -211,26 +211,30 @@ def init_globals():
         log.error("❌ NO CAMERAS CONFIGURED! Dashboard will be empty!")
         log.error("   Please check BACKEND_API_URL / BACKEND_KPI_URL or add CAMERAS_CONFIG env")
 
-    # Vehicle detector info
-    if ALPR_MODULES_AVAILABLE and VehicleDetector:
-        try:
-            d = VehicleDetector.__new__(VehicleDetector)
-            d.enabled = os.getenv("VEHICLE_DETECTOR_ENABLED", "true").lower() == "true"
-            d.model_path = os.getenv("VEHICLE_DETECTOR_MODEL_PATH", "")
-            d.conf = float(os.getenv("VEHICLE_DETECTOR_CONF", "0.40"))
-            d.iou = float(os.getenv("VEHICLE_DETECTOR_IOU", "0.45"))
-            d.imgsz = int(os.getenv("VEHICLE_DETECTOR_IMGSZ", "640"))
-            d.device = os.getenv("VEHICLE_DETECTOR_DEVICE", "0")
-            d.min_zone_overlap = float(os.getenv("VEHICLE_DETECTOR_MIN_ZONE_OVERLAP", "0.20"))
-            d.vehicle_classes = [
-                int(c.strip())
-                for c in os.getenv("VEHICLE_DETECTOR_CLASSES", "2,3,5,7").split(",")
-            ]
-            detector_info = d.get_info()
-            log.info("✅ Vehicle detector info loaded")
-        except Exception as e:
-            detector_info = {}
-            log.warning(f"⚠️  Vehicle detector info unavailable: {e}")
+    # Vehicle detector info — build จาก env โดยตรง ไม่ต้อง init object จริง
+    # (การใช้ __new__() แล้วเรียก get_info() จะ error เพราะ _model ยังไม่ถูก set)
+    enabled = os.getenv("VEHICLE_DETECTOR_ENABLED", "true").lower() == "true"
+    model_path = os.getenv("VEHICLE_DETECTOR_MODEL_PATH", "")
+    detector_info = {
+        "enabled": enabled,
+        "model_path": model_path,
+        "model_exists": os.path.isfile(model_path) if model_path else False,
+        "conf": float(os.getenv("VEHICLE_DETECTOR_CONF", "0.40")),
+        "iou": float(os.getenv("VEHICLE_DETECTOR_IOU", "0.45")),
+        "imgsz": int(os.getenv("VEHICLE_DETECTOR_IMGSZ", "640")),
+        "device": os.getenv("VEHICLE_DETECTOR_DEVICE", "0"),
+        "min_zone_overlap": float(os.getenv("VEHICLE_DETECTOR_MIN_ZONE_OVERLAP", "0.20")),
+        "vehicle_classes": [
+            int(c.strip())
+            for c in os.getenv("VEHICLE_DETECTOR_CLASSES", "2,3,5,7").split(",")
+        ],
+        "note": "info from env (model not loaded in dashboard)",
+    }
+    if not detector_info["model_exists"] and enabled:
+        log.warning(f"⚠️  VehicleDetector model not found: {model_path}")
+        log.warning("   producers จะทำงานโดยไม่มี YOLO จนกว่าจะใส่ model file")
+    else:
+        log.info(f"✅ Vehicle detector info: enabled={enabled}, model={'found' if detector_info['model_exists'] else 'missing'}")
 
     log.info("=" * 60)
     log.info(f"Dashboard ready: {len(cameras_config)} cameras, {len(zones_config)} zones")
