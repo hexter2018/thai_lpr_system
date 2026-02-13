@@ -67,7 +67,15 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
     except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         log.warning("Unable to load cameras from backend API (%s): %s", endpoint, exc)
         return []
-
+    
+    # Accept multiple API response shapes, e.g.:
+    # - [ ... ]
+    # - {"items": [ ... ]}
+    # - {"cameras": [ ... ]}
+    # - {"data": [ ... ]}
+    if isinstance(payload, dict):
+        payload = payload.get("items") or payload.get("cameras") or payload.get("data") or []
+        
     if not isinstance(payload, list):
         log.warning("Unexpected camera payload type from backend API: %s", type(payload).__name__)
         return []
@@ -76,7 +84,7 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
     for camera in payload:
         if not isinstance(camera, dict):
             continue
-        camera_id = camera.get("camera_id") or camera.get("id")
+        camera_id = camera.get("camera_id") or camera.get("id") or camera.get("cameraId") or camera.get("cam_id")
         if not camera_id:
             continue
         cameras.append({
