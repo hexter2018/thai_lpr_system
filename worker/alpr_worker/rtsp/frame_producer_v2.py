@@ -145,18 +145,29 @@ class RTSPFrameProducerV2:
             self.stats["last_update"] = datetime.now(LOCAL_TZ).isoformat()
             flat = {k: (str(v) if k != "zone_stats" else __import__("json").dumps(v)) for k, v in self.stats.items()}
             self.redis.hset(f"rtsp:stats:{self.camera_id}", mapping=flat)
-            if self._latest_annotated is not None:
-                ok, jpg = cv2.imencode(".jpg", self._latest_annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
-                if ok:
-                    self.redis.setex(f"alpr:preview:{self.camera_id}", 5, jpg.tobytes())
+            # FIX: ลบ preview write ออกจากที่นี่ — ย้ายไปอยู่ที่ _push_raw_preview()
+            # ซึ่ง write ทุก frame ทำให้ dashboard ได้ภาพ real-time เสมอ
         except Exception:
             pass
 
     def _push_yolo_frame(self, annotated: np.ndarray):
+        """Write YOLO-annotated frame (มี bounding box) ลง Redis"""
         try:
             ok, jpg = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok:
                 self.redis.setex(f"alpr:yolo_preview:{self.camera_id}", 3, jpg.tobytes())
+        except Exception:
+            pass
+
+    def _push_raw_preview(self, frame: np.ndarray):
+        """Write raw frame ลง Redis เสมอ ใช้เป็น fallback ให้ dashboard
+        Dashboard อ่าน alpr:yolo_preview ก่อน ถ้าไม่มีค่อย fallback มา alpr:preview
+        key นี้ expire ใน 5 วิ เพื่อให้รู้ว่ากล้องยังมีชีวิตอยู่
+        """
+        try:
+            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                self.redis.setex(f"alpr:preview:{self.camera_id}", 5, jpg.tobytes())
         except Exception:
             pass
 
@@ -261,9 +272,22 @@ class RTSPFrameProducerV2:
 
             frame = self._apply_roi(raw_frame)
             self._latest_raw = frame
+
+            # FIX: write raw preview ทันทีทุก frame ก่อน quality check
+            # เพื่อให้ dashboard เห็นภาพเสมอ แม้ YOLO ยังไม่ ready หรือไม่มี zone
+            self._push_raw_preview(frame)
+
             passed, _ = self._quality_pass(frame)
             if not passed:
                 continue
+
+            # FIX: log เมื่อ detector/zone ยังไม่พร้อม เพื่อ debug ง่ายขึ้น
+            if not self.vehicle_detector.is_ready:
+                if self.stats["frames_read"] % 50 == 1:
+                    log.warning("⚠️  VehicleDetector not ready (is_ready=False) — running without YOLO")
+            if not self.zones:
+                if self.stats["frames_read"] % 50 == 1:
+                    log.warning("⚠️  No capture zones configured — check CAPTURE_ZONE_ENABLED env")
 
             if self.vehicle_detector.is_ready and self.zones:
                 det_result: ZoneDetectionResult = self.vehicle_detector.detect_in_zones(frame, self.zones, draw=True)
