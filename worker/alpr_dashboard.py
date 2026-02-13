@@ -86,7 +86,7 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
         f"{base_url}/api/roi-agent/cameras",
     ]
 
-    for endpoint in endpoints:
+    for index, endpoint in enumerate(endpoints):
         try:
             with urlopen(endpoint, timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -97,6 +97,9 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
         cameras = _normalize_camera_payload(payload)
         if cameras:
             return cameras
+        
+        if index == 0:
+            return []
 
         log.warning("Camera API returned no usable cameras: %s", endpoint)
 
