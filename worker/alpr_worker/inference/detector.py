@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
-
+import cv2
 
 
 @dataclass

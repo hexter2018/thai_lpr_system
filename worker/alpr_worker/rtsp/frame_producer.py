@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RTSP Frame Producer for Thai ALPR System (Enhanced)
+RTSP Frame Producer for Thai ALPR System (Enhanced with Vehicle Tracking)
 
 Features:
 - RTSP stream reading with auto-reconnect
@@ -9,12 +9,14 @@ Features:
 - Enhanced quality filter v2 (glare detection, contrast analysis)
 - Image preprocessing (CLAHE, denoising, sharpening)
 - Frame deduplication
+- **Vehicle Tracking** — Track vehicles to avoid duplicate captures
 - Celery task enqueue
 
-Night Enhancement:
-- Auto-detects day/night conditions
-- Applies adaptive quality thresholds
-- Optional preprocessing pipeline for low-light frames
+Vehicle Tracking:
+- Assigns unique tracking ID to each vehicle
+- Tracks vehicle state across frames
+- Ensures each vehicle is captured only ONCE
+- Configurable cooldown per vehicle
 """
 
 import argparse
@@ -60,6 +62,15 @@ except ImportError:
     load_zones_from_env = None
     ZONE_TRIGGER_AVAILABLE = False
 
+# ─── Vehicle Tracker (prevent duplicate captures) ───
+try:
+    from alpr_worker.rtsp.vehicle_tracker import VehicleTracker, create_tracker_from_env
+    VEHICLE_TRACKER_AVAILABLE = True
+except ImportError:
+    VehicleTracker = None
+    create_tracker_from_env = None
+    VEHICLE_TRACKER_AVAILABLE = False
+
 # Import night enhancement modules (optional)
 _NIGHT_ENHANCEMENT_IMPORT_ERRORS: Dict[str, str] = {}
 
@@ -96,11 +107,12 @@ LOCAL_TZ = timezone(timedelta(hours=7))  # Asia/Bangkok
 
 class RTSPFrameProducer:
     """
-    RTSP Frame Producer with Night Enhancement Support
+    RTSP Frame Producer with Vehicle Tracking
     
     Features:
     - Read RTSP stream with auto-reconnect
     - Filter frames: motion detection, quality check, deduplication
+    - **Track vehicles** to ensure single capture per vehicle
     - Night-time enhancement (optional)
     - Save frames and enqueue to existing process_capture task
     - Track statistics in Redis
@@ -113,6 +125,7 @@ class RTSPFrameProducer:
         config: Optional[RTSPConfig] = None,
         enable_night_enhancement: bool = True,
         enable_preprocessing: bool = True,
+        enable_tracking: bool = True,
     ):
         self.camera_id = camera_id
         self.rtsp_url = rtsp_url
@@ -122,13 +135,16 @@ class RTSPFrameProducer:
         self.enable_night_enhancement = enable_night_enhancement and ENHANCED_SCORER_AVAILABLE
         self.enable_preprocessing = enable_preprocessing and PREPROCESSOR_AVAILABLE
         
+        # Vehicle tracking flag
+        self.enable_tracking = enable_tracking and VEHICLE_TRACKER_AVAILABLE
+        
         # Database
         self.engine = create_engine(self.config.database_url, pool_pre_ping=True)
         self.Session = sessionmaker(bind=self.engine)
         
         # Redis
         self.redis = Redis.from_url(self.config.redis_url)
-        self.last_heartbeat = 0  # ← เพิ่มบรรทัดนี้
+        self.last_heartbeat = 0
         
         # ROI Reader (Dashboard → Redis → ENV fallback)
         self._roi_reader = None
@@ -151,6 +167,16 @@ class RTSPFrameProducer:
         # Setup filters (with night enhancement if available)
         self._setup_filters()
         
+        # ⭐ Vehicle Tracker
+        self.vehicle_tracker: Optional[VehicleTracker] = None
+        if self.enable_tracking:
+            self.vehicle_tracker = create_tracker_from_env()
+            if self.vehicle_tracker:
+                log.info("✅ Vehicle tracking ENABLED (no duplicate captures)")
+            else:
+                log.warning("Vehicle tracking DISABLED (set VEHICLE_TRACKING_ENABLED=true)")
+                self.enable_tracking = False
+        
         # Stats
         self.stats = {
             "frames_read": 0,
@@ -158,12 +184,15 @@ class RTSPFrameProducer:
             "frames_dropped_quality": 0,
             "frames_dropped_duplicate": 0,
             "frames_dropped_line": 0,
+            "frames_dropped_tracking": 0,  # ⭐ NEW
             "frames_enhanced": 0,
             "frames_preprocessed": 0,
             "frames_enqueued": 0,
             "frames_buffered": 0,
             "frames_discarded_by_bestshot": 0,
             "frames_rejected_quality_gate": 0,
+            "vehicles_tracked": 0,  # ⭐ NEW
+            "vehicles_captured": 0,  # ⭐ NEW
             "night_mode_active": False,
             "last_update": None,
         }
@@ -172,7 +201,6 @@ class RTSPFrameProducer:
         self.quality_gate = QualityGate()
         self.best_shot_buffer = BestShotBuffer()
         
-
         # Optional virtual line trigger
         self.line_trigger = VirtualLineTrigger(LineTriggerConfig.from_env())
 
@@ -203,6 +231,7 @@ class RTSPFrameProducer:
         log.info(f"RTSP Producer initialized for {camera_id}")
         log.info(f"Night enhancement: {self.enable_night_enhancement}")
         log.info(f"Preprocessing: {self.enable_preprocessing}")
+        log.info(f"Vehicle tracking: {self.enable_tracking}")
         if self.line_trigger.enabled:
             cfg = self.line_trigger.config
             log.info(
@@ -304,15 +333,28 @@ class RTSPFrameProducer:
             log.error("Failed to open RTSP stream")
             return False
         
+        # Reset tracking state on reconnect
+        if self.vehicle_tracker:
+            self.vehicle_tracker.reset()
+        
         log.info("RTSP stream connected")
         return True
     
-    def _save_frame(self, frame: np.ndarray) -> str:
-        """Save frame to disk and return path"""
-        timestamp = datetime.now(LOCAL_TZ).strftime("%Y%m%d_%H%M%S_%f")
-        filename = f"{timestamp}_{uuid.uuid4().hex[:8]}.jpg"
-        filepath = self.rtsp_dir / filename
+    def _save_frame(self, frame: np.ndarray, track_id: Optional[int] = None) -> str:
+        """
+        Save frame to disk and return path
         
+        Args:
+            frame: BGR image
+            track_id: Vehicle tracking ID (optional, for filename)
+        """
+        timestamp = datetime.now(LOCAL_TZ).strftime("%Y%m%d_%H%M%S_%f")
+        if track_id is not None:
+            filename = f"{timestamp}_track{track_id:04d}_{uuid.uuid4().hex[:6]}.jpg"
+        else:
+            filename = f"{timestamp}_{uuid.uuid4().hex[:8]}.jpg"
+        
+        filepath = self.rtsp_dir / filename
         cv2.imwrite(str(filepath), frame)
         return str(filepath)
     
@@ -324,14 +366,25 @@ class RTSPFrameProducer:
                 h.update(chunk)
         return h.hexdigest()
     
-    def _insert_capture(self, image_path: str) -> int:
+    def _insert_capture(self, image_path: str, track_id: Optional[int] = None) -> int:
         """
         Insert capture record into database
-        Returns capture_id
+        
+        Args:
+            image_path: Path to saved frame
+            track_id: Vehicle tracking ID (optional)
+        
+        Returns:
+            capture_id
         """
         db = self.Session()
         try:
             sha256 = self._sha256_file(image_path)
+            
+            # ⭐ Add track_id to metadata if available
+            metadata = {}
+            if track_id is not None:
+                metadata["track_id"] = track_id
             
             sql = text("""
                 INSERT INTO captures (
@@ -468,7 +521,7 @@ class RTSPFrameProducer:
         return True, enhanced_frame, metadata
     
     def run(self):
-        """Main loop"""
+        """Main loop with vehicle tracking"""
         self.running = True
         frame_interval = 1.0 / self.config.target_fps
         
@@ -477,7 +530,8 @@ class RTSPFrameProducer:
         log.info(f"Filters: motion={self.config.enable_motion_filter} "
                 f"quality={'enhanced_v2' if self.enable_night_enhancement else 'standard'} "
                 f"dedup={self.config.enable_dedup} "
-                f"preprocessing={self.enable_preprocessing}")
+                f"preprocessing={self.enable_preprocessing} "
+                f"tracking={self.enable_tracking}")
         
         while self.running:
             # Check stop flag
@@ -522,6 +576,19 @@ class RTSPFrameProducer:
                 ry2 = max(ry1 + 1, min(int(roi["y2"] * h), h))
                 frame = frame[ry1:ry2, rx1:rx2]
 
+            # ⭐ Vehicle Tracking — Update tracker
+            ready_to_capture_tracks = []
+            if self.vehicle_tracker:
+                tracking_result = self.vehicle_tracker.update(frame, now)
+                self.stats["vehicles_tracked"] = tracking_result.total_tracks
+                ready_to_capture_tracks = tracking_result.ready_to_capture
+                
+                # Log new tracks
+                if tracking_result.new_tracks:
+                    for track in tracking_result.new_tracks:
+                        log.info(f"🚗 New vehicle detected: Track ID {track.track_id}")
+            
+            # Line trigger check (if enabled)
             if self.line_trigger.enabled and not self.line_trigger.check(frame, now):
                 self.stats["frames_dropped_line"] += 1
                 continue
@@ -532,57 +599,106 @@ class RTSPFrameProducer:
                 if not zone_result.triggered:
                     self.stats["frames_dropped_line"] += 1
                     continue
+            
+            # ⭐ Check if we should capture based on tracking
+            if self.vehicle_tracker and ready_to_capture_tracks:
+                # We have vehicles ready to capture
+                # Pick the best one (largest area / most stable)
+                best_track = max(ready_to_capture_tracks, key=lambda t: t.area * t.hits)
                 
-            # Process frame through filters
-            should_process, enhanced_frame, metadata = self._process_frame(frame)
-            if not should_process:
-                continue
-            
-            # Use enhanced frame if available, otherwise original
-            frame_to_save = enhanced_frame if enhanced_frame is not None else frame
-            
-            # Quality Gate: reject junk frames early
-            gate_result = self.quality_gate.check(frame_to_save)
-            if not gate_result.passed:
-                self.stats["frames_dropped_quality"] += 1
-                log.debug("QualityGate rejected: %s (score=%.0f)", gate_result.reject_reason, gate_result.score)
-                continue
-            
-            # Override quality_score with gate score for better best-shot selection
-            metadata["quality_score"] = gate_result.score
-            
-            # Save frame to disk (needed for buffer)
-            try:
-                image_path = self._save_frame(frame_to_save)
-            except Exception as e:
-                log.error(f"Failed to save frame: {e}")
-                continue
-            
-            # Best Shot Buffer: buffer frame, only enqueue when best is selected
-            candidate = FrameCandidate(
-                image_path=image_path,
-                quality_score=metadata.get("quality_score", 0.0),
-                timestamp=now,
-                metadata=metadata,
-            )
-            selected = self.best_shot_buffer.add(candidate)
-            if selected:
-                self._enqueue_selected(selected)
-            
-            # Best Shot: check gap timeout (no new frames → flush buffer)
-            gap_result = self.best_shot_buffer.check_timeout(now)
-            if gap_result:
-                self._enqueue_selected(gap_result)
+                # Check if already captured recently
+                if self.vehicle_tracker.was_captured(best_track.track_id, now):
+                    self.stats["frames_dropped_tracking"] += 1
+                    log.debug(f"Track {best_track.track_id} recently captured, skipping")
+                    continue
+                
+                log.info(f"📸 Capturing Track ID {best_track.track_id} (state={best_track.state}, hits={best_track.hits})")
+                
+                # Process frame through quality filters
+                should_process, enhanced_frame, metadata = self._process_frame(frame)
+                if not should_process:
+                    continue
+                
+                # Use enhanced frame if available
+                frame_to_save = enhanced_frame if enhanced_frame is not None else frame
+                
+                # Quality Gate check
+                gate_result = self.quality_gate.check(frame_to_save)
+                if not gate_result.passed:
+                    self.stats["frames_rejected_quality_gate"] += 1
+                    log.debug(f"Track {best_track.track_id} QualityGate rejected: {gate_result.reject_reason}")
+                    continue
+                
+                # Override quality_score
+                metadata["quality_score"] = gate_result.score
+                metadata["track_id"] = best_track.track_id
+                
+                # Save and enqueue
+                try:
+                    image_path = self._save_frame(frame_to_save, track_id=best_track.track_id)
+                    capture_id = self._insert_capture(image_path, track_id=best_track.track_id)
+                    self._enqueue_processing(capture_id, image_path)
+                    
+                    # Mark as captured
+                    self.vehicle_tracker.mark_captured(best_track.track_id, now)
+                    self.stats["frames_enqueued"] += 1
+                    self.stats["vehicles_captured"] += 1
+                    
+                    log.info(
+                        f"✅ Track {best_track.track_id} captured → capture_id={capture_id} "
+                        f"(quality={gate_result.score:.0f}, total_captured={self.stats['vehicles_captured']})"
+                    )
+                    
+                except Exception as e:
+                    log.error(f"Failed to process Track {best_track.track_id}: {e}")
+                
+            elif not self.vehicle_tracker:
+                # Tracking disabled — use old behavior (capture all frames that pass filters)
+                should_process, enhanced_frame, metadata = self._process_frame(frame)
+                if not should_process:
+                    continue
+                
+                frame_to_save = enhanced_frame if enhanced_frame is not None else frame
+                
+                gate_result = self.quality_gate.check(frame_to_save)
+                if not gate_result.passed:
+                    self.stats["frames_dropped_quality"] += 1
+                    continue
+                
+                metadata["quality_score"] = gate_result.score
+                
+                # Save frame to disk
+                try:
+                    image_path = self._save_frame(frame_to_save)
+                except Exception as e:
+                    log.error(f"Failed to save frame: {e}")
+                    continue
+                
+                # Best Shot Buffer
+                candidate = FrameCandidate(
+                    image_path=image_path,
+                    quality_score=metadata.get("quality_score", 0.0),
+                    timestamp=now,
+                    metadata=metadata,
+                )
+                selected = self.best_shot_buffer.add(candidate)
+                if selected:
+                    self._enqueue_selected(selected)
+                
+                # Check gap timeout
+                gap_result = self.best_shot_buffer.check_timeout(now)
+                if gap_result:
+                    self._enqueue_selected(gap_result)
             
             # Update stats every 10 frames
-            if self.stats["frames_enqueued"] % 10 == 0:
+            if self.stats["frames_read"] % 10 == 0:
                 self._update_stats()
         
         # Cleanup
         self.stop()
     
     def _enqueue_selected(self, selected: FrameCandidate):
-        """Enqueue the best-shot frame for processing"""
+        """Enqueue the best-shot frame for processing (legacy mode)"""
         try:
             capture_id = self._insert_capture(selected.image_path)
             self._enqueue_processing(capture_id, selected.image_path)
@@ -590,7 +706,6 @@ class RTSPFrameProducer:
             
             if self.stats["frames_enqueued"] % 5 == 0:
                 night_status = " [NIGHT]" if selected.metadata.get("is_night") else ""
-                buffered = self.best_shot_buffer.buffered_count
                 log.info(
                     f"BestShot enqueued {self.stats['frames_enqueued']} "
                     f"(read={self.stats['frames_read']}, "
@@ -603,10 +718,11 @@ class RTSPFrameProducer:
         """Stop producer and cleanup"""
         self.running = False
         
-        # Flush remaining buffer
-        remaining = self.best_shot_buffer.flush_remaining()
-        if remaining:
-            self._enqueue_selected(remaining)
+        # Flush remaining buffer (if tracking disabled)
+        if not self.vehicle_tracker:
+            remaining = self.best_shot_buffer.flush_remaining()
+            if remaining:
+                self._enqueue_selected(remaining)
         
         if self.cap is not None:
             self.cap.release()
@@ -616,12 +732,15 @@ class RTSPFrameProducer:
         self._update_stats()
         
         log.info(f"Producer stopped. Stats: {self.stats}")
+        if self.vehicle_tracker:
+            log.info(f"  Vehicles tracked: {self.stats['vehicles_tracked']}")
+            log.info(f"  Vehicles captured: {self.stats['vehicles_captured']}")
 
 
 def main():
     """CLI entry point"""
     parser = argparse.ArgumentParser(
-        description="RTSP Frame Producer for Thai ALPR (Enhanced)"
+        description="RTSP Frame Producer for Thai ALPR (Enhanced with Vehicle Tracking)"
     )
     parser.add_argument("--camera-id", required=True, help="Camera ID")
     parser.add_argument("--rtsp-url", required=True, help="RTSP stream URL")
@@ -642,6 +761,17 @@ def main():
         action="store_true",
         help="Enable image preprocessing for low-light frames"
     )
+    parser.add_argument(
+        "--enable-tracking",
+        action="store_true",
+        default=True,
+        help="Enable vehicle tracking (default: True)"
+    )
+    parser.add_argument(
+        "--disable-tracking",
+        action="store_true",
+        help="Disable vehicle tracking"
+    )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
@@ -653,23 +783,20 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     
-    # Check night enhancement availability
+    # Check feature availability
     if not NIGHT_ENHANCEMENT_AVAILABLE:
-        log.warning(
-            "Night enhancement modules unavailable. "
-            "Install/import errors: %s",
-            ", ".join(
-                f"{module} ({error})"
-                for module, error in _NIGHT_ENHANCEMENT_IMPORT_ERRORS.items()
-            )
-        )
+        log.warning("Night enhancement modules unavailable.")
+    
+    if not VEHICLE_TRACKER_AVAILABLE:
+        log.warning("Vehicle tracker module unavailable.")
     
     # Create config
     config = RTSPConfig.from_env()
     config.target_fps = args.fps
     
-    # Resolve night enhancement flag
+    # Resolve flags
     enable_night = args.enable_night_enhancement and not args.disable_night_enhancement
+    enable_tracking = args.enable_tracking and not args.disable_tracking
     
     # Create and run producer
     producer = RTSPFrameProducer(
@@ -678,6 +805,7 @@ def main():
         config=config,
         enable_night_enhancement=enable_night,
         enable_preprocessing=args.enable_preprocessing,
+        enable_tracking=enable_tracking,
     )
     
     try:

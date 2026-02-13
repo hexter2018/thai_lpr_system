@@ -1,3 +1,12 @@
+# docker-compose.realtime.yml — WITH VEHICLE TRACKING
+# 
+# สำคัญ: ไฟล์นี้เพิ่ม Vehicle Tracking เพื่อให้ถ่ายรูปรถแค่ 1 ครั้งต่อคัน
+#
+# เปลี่ยนแปลงหลัก:
+# - เพิ่ม VEHICLE_TRACKING_* ENV variables ใน rtsp-producer-cam*
+# - แต่ละรถจะได้รับ unique tracking ID
+# - ระบบจะจำรถที่ capture ไปแล้วและไม่ capture ซ้ำ
+
 services:
   # ==================== Core Infrastructure ====================
   postgres:
@@ -49,13 +58,11 @@ services:
       STORAGE_DIR: /storage
       CORS_ORIGINS: http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173
 
-      # ===== ROI Agent Dashboard — camera config =====
-      # roi_api.py อ่านค่านี้เพื่อ list กล้อง + ดึง snapshot
       CAMERAS_CONFIG: >
         [
-          {"id": "PCN_Lane4", "name": "PCN-MM04 Lane 4", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
-          {"id": "PCN_Lane5", "name": "PCN-MM04 Lane 5", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
-          {"id": "PCN_Lane6", "name": "PCN-MM04 Lane 6", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
+          {"id": "PCN_Lane4", "name": "PCN-MM04", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane5", "name": "PCN-MM05", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane6", "name": "PCN-MM06", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
         ]
 
     volumes:
@@ -157,7 +164,7 @@ services:
       - alpr-network
     restart: unless-stopped
 
-  # ==================== RTSP Producers ====================
+  # ==================== RTSP Producers (WITH VEHICLE TRACKING) ====================
   
   rtsp-producer-cam1:
     build:
@@ -169,6 +176,13 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
+
+      # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
+      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_MAX_AGE: "30"              # เฟรมก่อนที่ track จะหมดอายุ
+      VEHICLE_TRACKING_MIN_HITS: "3"              # จำนวนครั้งที่เจอขั้นต่ำก่อนถือว่า stable
+      VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"       # IoU threshold สำหรับ matching
+      VEHICLE_TRACKING_CAPTURE_COOLDOWN: "15.0"   # วินาทีระหว่าง capture ของรถคันเดียวกัน
 
       NIGHT_ENHANCEMENT_AVAILABLE: "false"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
@@ -192,21 +206,18 @@ services:
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
+      # ⚠️ Best Shot ปิดไว้เมื่อใช้ Vehicle Tracking
       RTSP_BESTSHOT_ENABLED: "false"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
-      # ===== ROI: ค่า ENV เป็น fallback =====
-      # ถ้า Redis มีค่า (จาก Dashboard) → ใช้ Redis
-      # ถ้า Redis ไม่มี → fallback ใช้ ENV ตรงนี้
       RTSP_ROI_ENABLED: "false"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
-      # ===== ROI from Redis (Dashboard integration) =====
       RTSP_ROI_REDIS_ENABLED: "false"
       RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
 
@@ -227,7 +238,6 @@ services:
       CAPTURE_ZONE_1_MIN_FILL: "0.15"
       CAPTURE_ZONE_1_COOLDOWN: "2.0"
 
-
     volumes:
       - ./storage:/storage
       - ./debug-logs:/logs
@@ -241,6 +251,7 @@ services:
       - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
+      - --enable-tracking
     depends_on:
       postgres:
         condition: service_healthy
@@ -260,6 +271,13 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
+
+      # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
+      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_MAX_AGE: "30"
+      VEHICLE_TRACKING_MIN_HITS: "3"
+      VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"
+      VEHICLE_TRACKING_CAPTURE_COOLDOWN: "15.0"
 
       NIGHT_ENHANCEMENT_AVAILABLE: "true"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
@@ -283,21 +301,18 @@ services:
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      RTSP_BESTSHOT_ENABLED: "true"
+      # ⚠️ Best Shot ปิดไว้เมื่อใช้ Vehicle Tracking
+      RTSP_BESTSHOT_ENABLED: "false"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
 
-      # ===== ROI: ค่า ENV เป็น fallback =====
-      # ถ้า Redis มีค่า (จาก Dashboard) → ใช้ Redis
-      # ถ้า Redis ไม่มี → fallback ใช้ ENV ตรงนี้
       RTSP_ROI_ENABLED: "false"
       RTSP_ROI_X1: "0.15"
       RTSP_ROI_Y1: "0.30"
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
-      # ===== ROI from Redis (Dashboard integration) =====
       RTSP_ROI_REDIS_ENABLED: "false"
       RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
 
@@ -324,6 +339,7 @@ services:
       - rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
+      - --enable-tracking
     depends_on:
       postgres:
         condition: service_healthy
@@ -343,6 +359,13 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
+
+      # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
+      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_MAX_AGE: "30"
+      VEHICLE_TRACKING_MIN_HITS: "3"
+      VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"
+      VEHICLE_TRACKING_CAPTURE_COOLDOWN: "15.0"
 
       NIGHT_ENHANCEMENT_AVAILABLE: "true"
       NIGHT_ENHANCEMENT_START_HOUR: "18"  
@@ -366,7 +389,8 @@ services:
       QUALITY_GATE_MAX_GLARE_PCT: "3.0"
       QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
 
-      RTSP_BESTSHOT_ENABLED: "true"
+      # ⚠️ Best Shot ปิดไว้เมื่อใช้ Vehicle Tracking
+      RTSP_BESTSHOT_ENABLED: "false"
       RTSP_BESTSHOT_WINDOW_SEC: "3.0"
       RTSP_BESTSHOT_GAP_SEC: "0.8"
       RTSP_BESTSHOT_MIN_FRAMES: "1"
@@ -377,7 +401,6 @@ services:
       RTSP_ROI_X2: "0.80"
       RTSP_ROI_Y2: "0.90"
 
-      # ===== ROI from Redis (Dashboard integration) =====
       RTSP_ROI_REDIS_ENABLED: "true"
       RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
 
@@ -404,6 +427,7 @@ services:
       - rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
+      - --enable-tracking
     depends_on:
       postgres:
         condition: service_healthy
@@ -448,11 +472,9 @@ services:
       VITE_API_BASE: http://10.32.70.136:8000
       VITE_PROXY_TARGET: http://backend:8000
       VITE_ENABLE_MJPEG_STREAM: "true"
-            # Debug features
       VITE_DEBUG_ROI: "true"
       VITE_SHOW_FPS: "true"
 
-          # Keep container running for logs
     tty: true
     stdin_open: true
 
