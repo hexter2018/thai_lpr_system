@@ -178,7 +178,7 @@ services:
       STORAGE_DIR: /storage
 
       # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
-      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_ENABLED: "false"
       VEHICLE_TRACKING_MAX_AGE: "30"              # เฟรมก่อนที่ track จะหมดอายุ
       VEHICLE_TRACKING_MIN_HITS: "3"              # จำนวนครั้งที่เจอขั้นต่ำก่อนถือว่า stable
       VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"       # IoU threshold สำหรับ matching
@@ -256,6 +256,7 @@ services:
       - python
       - -m
       - alpr_worker.rtsp.frame_producer_v2
+      - --disable-night-enhancement
       - --camera-id
       - PCN_Lane4
       - --rtsp-url
@@ -294,7 +295,7 @@ services:
       VEHICLE_DETECTOR_COOLDOWN_SEC: "3.0"
 
       # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
-      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_ENABLED: "false"
       VEHICLE_TRACKING_MAX_AGE: "30"
       VEHICLE_TRACKING_MIN_HITS: "3"
       VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"
@@ -354,6 +355,7 @@ services:
       - python
       - -m
       - alpr_worker.rtsp.frame_producer_v2
+      - --disable-night-enhancement
       - --camera-id
       - PCN_Lane5
       - --rtsp-url
@@ -392,7 +394,7 @@ services:
       VEHICLE_DETECTOR_COOLDOWN_SEC: "3.0"
 
       # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
-      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_ENABLED: "false"
       VEHICLE_TRACKING_MAX_AGE: "30"
       VEHICLE_TRACKING_MIN_HITS: "3"
       VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"
@@ -452,6 +454,7 @@ services:
       - python
       - -m
       - alpr_worker.rtsp.frame_producer_v2
+      - --disable-night-enhancement
       - --camera-id
       - PCN_Lane6
       - --rtsp-url
@@ -539,50 +542,17 @@ services:
       - alpr-network
 
   # ==================== Dashboard ====================  
-  web-dashboard:
-    build:
-      context: ./worker
-    
-    environment:
-      TZ: Asia/Bangkok
-      DATABASE_URL: postgresql://alpr:alpr@postgres:5432/alpr
-      REDIS_URL: redis://redis:6379/0
-      CAMERAS_CONFIG: >
-        [
-          {"id": "PCN_Lane4", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
-          {"id": "PCN_Lane5", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
-          {"id": "PCN_Lane6", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
-        ]
-      
-      VEHICLE_TRACKING_ENABLED: "true"
-      CAPTURE_ZONE_ENABLED: "true"
-    
-    ports:
-      - "5000:5000"
-    
-    command:
-      - python
-      - web_dashboard.py
-    
-    depends_on:
-      - redis
-      - backend
-    
-    networks:
-      - alpr-network
-
-
   alpr-dashboard:
     build:
       context: ./worker
     command: python alpr_dashboard.py
     ports:
-      - "5001:5001"
+      - "5000:5000"
     environment:
       TZ: Asia/Bangkok
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
-      DASHBOARD_PORT: "5001"
+      DASHBOARD_PORT: "5000"
       CAMERAS_CONFIG: >
         [
           {"id": "PCN_Lane4", "name": "PCN-MM04"},
