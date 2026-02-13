@@ -196,6 +196,7 @@ def _captures(limit: int = 20) -> List[Dict[str, Any]]:
 
 @app.route("/")
 def index():
+    _refresh_cameras_config()
     return render_template_string(HTML, cameras=cameras_config)
 
 

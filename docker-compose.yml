@@ -50,6 +50,11 @@ services:
     build:
       context: ./backend
     user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
     environment:
       TZ: Asia/Bangkok
       LOG_LEVEL: INFO
@@ -550,6 +555,7 @@ services:
       - "5000:5000"
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: INFO
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       BACKEND_KPI_URL: http://backend:8000
@@ -562,9 +568,12 @@ services:
       VEHICLE_DETECTOR_MODEL_PATH: "/models/vehicle.pt"
       VEHICLE_DETECTOR_CONF: "0.40"
     depends_on:
-      - backend
-      - redis
-      - postgres
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     volumes:
       - ./models:/models
     networks:
