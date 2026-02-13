@@ -1,4 +1,14 @@
+# docker-compose.realtime.yml — WITH VEHICLE TRACKING
+# 
+# สำคัญ: ไฟล์นี้เพิ่ม Vehicle Tracking เพื่อให้ถ่ายรูปรถแค่ 1 ครั้งต่อคัน
+#
+# เปลี่ยนแปลงหลัก:
+# - เพิ่ม VEHICLE_TRACKING_* ENV variables ใน rtsp-producer-cam*
+# - แต่ละรถจะได้รับ unique tracking ID
+# - ระบบจะจำรถที่ capture ไปแล้วและไม่ capture ซ้ำ
+
 services:
+  # ==================== Core Infrastructure ====================
   postgres:
     image: postgres:16
     environment:
@@ -15,24 +25,46 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+    networks:
+      - alpr-network
 
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
     environment:
       TZ: Asia/Bangkok
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks:
+      - alpr-network
 
+  # ==================== Backend API ====================
   backend:
     build:
       context: ./backend
     user: "1000:1000"
     environment:
-      TIMEZONE: Asia/Bangkok
+      TZ: Asia/Bangkok
+      LOG_LEVEL: INFO
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
       CORS_ORIGINS: http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173
+
+      CAMERAS_CONFIG: >
+        [
+          {"id": "PCN_Lane4", "name": "PCN-MM04", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane5", "name": "PCN-MM05", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane6", "name": "PCN-MM06", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
+        ]
+
     volumes:
       - ./storage:/storage
       - ./models:/models
@@ -42,33 +74,84 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    networks:
+      - alpr-network
 
-  worker:
+  # ==================== Celery Workers ====================
+  worker-gpu-1:
     build:
       context: ./worker
-    gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
     environment:
       TZ: Asia/Bangkok
+      # TensorRT settings
       TRT_WORKSPACE: "4096"
       TRT_FP16: "1"
+      CUDA_VISIBLE_DEVICES: "0"
+      
+      # Database & Redis
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      CUDA_VISIBLE_DEVICES: "0"
-      ULTRALYTICS_AUTOINSTALL: "false"
-      YOLO_VERBOSE: "false"
-
-      # ✅ แนะนำ: เริ่มจาก .pt แล้วให้ระบบ build .engine เองถ้ารองรับ
+      
+      # Model settings
       MODEL_PATH: /models/best.pt
-
       DETECTOR_CONF: "0.20"
       TRT_INPUT_W: "640"
       TRT_INPUT_H: "640"
       TRT_CONF_THRES: "0.20"
       TRT_IOU_THRES: "0.45"
       TRT_CLASS_ID: "0"
+      
+      # ALPR settings
       MASTER_CONF_THRESHOLD: "0.95"
+      
+      # Perspective Fix (post-crop pre-OCR)
+      PERSPECTIVE_FIX_ENABLED: "true"
+      PERSPECTIVE_FIX_MIN_AREA: "500"
+
+      # OCR tuning
+      OCR_PROVINCE_MIN_SCORE: "55.0"
+      OCR_VARIANT_LIMIT: "14"
+      OCR_CONSENSUS_MIN: "0.45"
+      OCR_MARGIN_MIN: "0.12"
+      OCR_DEBUG_CONFIDENCE_THRESHOLD: "0.55"
+
+      # Headlight Deglare
+      DEGLARE_ENABLED: "true"
+      DEGLARE_SATURATION_THRESHOLD: "240"
+      DEGLARE_CLAHE_CLIP: "3.0"
+
+      # ===== Crop Validator (กรอง crop ข้างรถ) =====
+      CROP_VALIDATOR_ENABLED: "true"
+      CROP_MIN_WIDTH: "40"
+      CROP_MIN_HEIGHT: "15"
+      CROP_MIN_ASPECT_RATIO: "1.5"
+      CROP_MAX_ASPECT_RATIO: "7.0"
+      CROP_MIN_CONTRAST: "20.0"
+      CROP_MIN_EDGE_DENSITY: "0.03"
+
+      # ===== Plate Dedup (กรองทะเบียนซ้ำ) =====
+      PLATE_DEDUP_ENABLED: "true"
+      PLATE_DEDUP_COOLDOWN_SEC: "60"
+      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
+      PLATE_DEDUP_CAMERA_SCOPE: "true"
+      
+      # Celery settings
+      CELERY_WORKER_CONCURRENCY: "8"
+      CELERY_WORKER_PREFETCH: "16"
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: "200"
+      
+      # Performance
+      ULTRALYTICS_AUTOINSTALL: "false"
+      YOLO_VERBOSE: "false"
     volumes:
       - ./storage:/storage
       - ./models:/models
@@ -76,19 +159,392 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
 
+  # ==================== RTSP Producers (WITH VEHICLE TRACKING) ====================
+  
+  rtsp-producer-cam1:
+    build:
+      context: ./worker
+    environment:
+      TZ: Asia/Bangkok
+      LOG_LEVEL: INFO
+      RTSP_DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+
+      # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
+      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_MAX_AGE: "30"              # เฟรมก่อนที่ track จะหมดอายุ
+      VEHICLE_TRACKING_MIN_HITS: "3"              # จำนวนครั้งที่เจอขั้นต่ำก่อนถือว่า stable
+      VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"       # IoU threshold สำหรับ matching
+      VEHICLE_TRACKING_CAPTURE_COOLDOWN: "15.0"   # วินาทีระหว่าง capture ของรถคันเดียวกัน
+
+      NIGHT_ENHANCEMENT_AVAILABLE: "false"
+      NIGHT_ENHANCEMENT_START_HOUR: "18"  
+      NIGHT_ENHANCEMENT_END_HOUR: "6"
+      
+      RTSP_TARGET_FPS: "5.0"
+      RTSP_RECONNECT_SEC: "2.0"
+      
+      RTSP_ENABLE_MOTION_FILTER: "false"
+      RTSP_MOTION_THRESHOLD: "3.0"
+      
+      RTSP_ENABLE_QUALITY_FILTER: "false"
+      RTSP_MIN_QUALITY_SCORE: "20.0"
+      
+      RTSP_ENABLE_DEDUP: "false"
+      RTSP_DEDUP_CACHE_SIZE: "30"
+      RTSP_DEDUP_THRESHOLD: "10"
+
+      QUALITY_GATE_ENABLED: "false"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "3.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
+
+      # ⚠️ Best Shot ปิดไว้เมื่อใช้ Vehicle Tracking
+      RTSP_BESTSHOT_ENABLED: "false"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "0.8"
+      RTSP_BESTSHOT_MIN_FRAMES: "1"
+
+      RTSP_ROI_ENABLED: "false"
+      RTSP_ROI_X1: "0.15"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.80"
+      RTSP_ROI_Y2: "0.90"
+
+      RTSP_ROI_REDIS_ENABLED: "false"
+      RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
+
+      RTSP_LINE_ENABLED: "false"
+      RTSP_LINE_X1: "0.27"
+      RTSP_LINE_Y1: "0.45"
+      RTSP_LINE_X2: "0.80"
+      RTSP_LINE_Y2: "0.45"
+      RTSP_LINE_DIRECTION: "down"
+      RTSP_LINE_BAND_PX: "40"
+      RTSP_LINE_MIN_AREA_PX: "1500"
+      RTSP_LINE_COOLDOWN_SEC: "1.2"
+
+      CAPTURE_ZONE_ENABLED: "true"
+      CAPTURE_ZONE_COUNT: "1"
+      CAPTURE_ZONE_1_NAME: "PCN_MM04"
+      CAPTURE_ZONE_1_POINTS: "0.226,0.841;0.720,0.696;0.828,0.812;0.279,0.989;0.230,0.846"
+      CAPTURE_ZONE_1_MIN_FILL: "0.15"
+      CAPTURE_ZONE_1_COOLDOWN: "2.0"
+
+    volumes:
+      - ./storage:/storage
+      - ./debug-logs:/logs
+    command:
+      - python
+      - -m
+      - alpr_worker.rtsp.frame_producer
+      - --camera-id
+      - PCN_Lane4
+      - --rtsp-url
+      - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265
+      - --fps
+      - "3.0"
+      - --enable-tracking
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
+
+  rtsp-producer-cam2:
+    build:
+      context: ./worker
+    environment:
+      TZ: Asia/Bangkok
+      LOG_LEVEL: INFO
+      RTSP_DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+
+      # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
+      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_MAX_AGE: "30"
+      VEHICLE_TRACKING_MIN_HITS: "3"
+      VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"
+      VEHICLE_TRACKING_CAPTURE_COOLDOWN: "15.0"
+
+      NIGHT_ENHANCEMENT_AVAILABLE: "true"
+      NIGHT_ENHANCEMENT_START_HOUR: "18"  
+      NIGHT_ENHANCEMENT_END_HOUR: "6"
+      
+      RTSP_TARGET_FPS: "5.0"
+      RTSP_RECONNECT_SEC: "2.0"
+      
+      RTSP_ENABLE_MOTION_FILTER: "false"
+      RTSP_MOTION_THRESHOLD: "3.0"
+      
+      RTSP_ENABLE_QUALITY_FILTER: "true"
+      RTSP_MIN_QUALITY_SCORE: "20.0"
+      
+      RTSP_ENABLE_DEDUP: "true"
+      RTSP_DEDUP_CACHE_SIZE: "30"
+      RTSP_DEDUP_THRESHOLD: "10"
+
+      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "3.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
+
+      # ⚠️ Best Shot ปิดไว้เมื่อใช้ Vehicle Tracking
+      RTSP_BESTSHOT_ENABLED: "false"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "0.8"
+      RTSP_BESTSHOT_MIN_FRAMES: "1"
+
+      RTSP_ROI_ENABLED: "false"
+      RTSP_ROI_X1: "0.15"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.80"
+      RTSP_ROI_Y2: "0.90"
+
+      RTSP_ROI_REDIS_ENABLED: "false"
+      RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
+
+      RTSP_LINE_ENABLED: "false"
+      RTSP_LINE_X1: "0.27"
+      RTSP_LINE_Y1: "0.45"
+      RTSP_LINE_X2: "0.80"
+      RTSP_LINE_Y2: "0.45"
+      RTSP_LINE_DIRECTION: "down"
+      RTSP_LINE_BAND_PX: "40"
+      RTSP_LINE_MIN_AREA_PX: "1500"
+      RTSP_LINE_COOLDOWN_SEC: "1.2"
+
+    volumes:
+      - ./storage:/storage
+      - ./debug-logs:/logs
+    command:
+      - python
+      - -m
+      - alpr_worker.rtsp.frame_producer
+      - --camera-id
+      - PCN_Lane5
+      - --rtsp-url
+      - rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265
+      - --fps
+      - "3.0"
+      - --enable-tracking
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
+
+  rtsp-producer-cam3:
+    build:
+      context: ./worker
+    environment:
+      TZ: Asia/Bangkok
+      LOG_LEVEL: INFO
+      RTSP_DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+
+      # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
+      VEHICLE_TRACKING_ENABLED: "true"
+      VEHICLE_TRACKING_MAX_AGE: "30"
+      VEHICLE_TRACKING_MIN_HITS: "3"
+      VEHICLE_TRACKING_IOU_THRESHOLD: "0.3"
+      VEHICLE_TRACKING_CAPTURE_COOLDOWN: "15.0"
+
+      NIGHT_ENHANCEMENT_AVAILABLE: "true"
+      NIGHT_ENHANCEMENT_START_HOUR: "18"  
+      NIGHT_ENHANCEMENT_END_HOUR: "6"
+      
+      RTSP_TARGET_FPS: "5.0"
+      RTSP_RECONNECT_SEC: "2.0"
+      
+      RTSP_ENABLE_MOTION_FILTER: "false"
+      RTSP_MOTION_THRESHOLD: "3.0"
+      
+      RTSP_ENABLE_QUALITY_FILTER: "true"
+      RTSP_MIN_QUALITY_SCORE: "20.0"
+      
+      RTSP_ENABLE_DEDUP: "true"
+      RTSP_DEDUP_CACHE_SIZE: "30"
+      RTSP_DEDUP_THRESHOLD: "10"
+
+      QUALITY_GATE_ENABLED: "true"
+      QUALITY_GATE_MIN_PLATE_CONTRAST: "15.0"
+      QUALITY_GATE_MAX_GLARE_PCT: "3.0"
+      QUALITY_GATE_MIN_COLOR_SATURATION: "3.0"
+
+      # ⚠️ Best Shot ปิดไว้เมื่อใช้ Vehicle Tracking
+      RTSP_BESTSHOT_ENABLED: "false"
+      RTSP_BESTSHOT_WINDOW_SEC: "3.0"
+      RTSP_BESTSHOT_GAP_SEC: "0.8"
+      RTSP_BESTSHOT_MIN_FRAMES: "1"
+
+      RTSP_ROI_ENABLED: "true"
+      RTSP_ROI_X1: "0.15"
+      RTSP_ROI_Y1: "0.30"
+      RTSP_ROI_X2: "0.80"
+      RTSP_ROI_Y2: "0.90"
+
+      RTSP_ROI_REDIS_ENABLED: "true"
+      RTSP_ROI_REDIS_KEY_PREFIX: "alpr:roi"
+
+      RTSP_LINE_ENABLED: "false"
+      RTSP_LINE_X1: "0.27"
+      RTSP_LINE_Y1: "0.45"
+      RTSP_LINE_X2: "0.80"
+      RTSP_LINE_Y2: "0.45"
+      RTSP_LINE_DIRECTION: "down"
+      RTSP_LINE_BAND_PX: "40"
+      RTSP_LINE_MIN_AREA_PX: "1500"
+      RTSP_LINE_COOLDOWN_SEC: "1.2"
+
+    volumes:
+      - ./storage:/storage
+      - ./debug-logs:/logs
+    command:
+      - python
+      - -m
+      - alpr_worker.rtsp.frame_producer
+      - --camera-id
+      - PCN_Lane6
+      - --rtsp-url
+      - rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265
+      - --fps
+      - "3.0"
+      - --enable-tracking
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - alpr-network
+    restart: unless-stopped
+
+  # ==================== Monitoring ====================
+  flower:
+    image: mher/flower:2.0
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      - alpr-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - alpr-network
+
+  # ==================== Frontend ====================
   frontend:
     build:
       context: ./frontend
     environment:
       TZ: Asia/Bangkok
+      LOG_LEVEL: INFO
       VITE_API_BASE: http://10.32.70.136:8000
       VITE_PROXY_TARGET: http://backend:8000
+      VITE_ENABLE_MJPEG_STREAM: "true"
+      VITE_DEBUG_ROI: "true"
+      VITE_SHOW_FPS: "true"
+
+    tty: true
+    stdin_open: true
+
     ports:
       - "5173:5173"
     depends_on:
       - backend
+    networks:
+      - alpr-network
+
+  stream-monitor:
+    image: alpine:latest
+    command: >
+      sh -c "
+        while true; do
+          echo '=== Stream Stats $(date) ===';
+          echo 'PCN_Lane4:';
+          ls -lht /storage/rtsp/PCN_Lane4 | head -3;
+          echo '';
+          echo 'PCN_Lane5:';
+          ls -lht /storage/rtsp/PCN_Lane5 | head -3;
+          echo '';
+          echo 'PCN_Lane6:';
+          ls -lht /storage/rtsp/PCN_Lane6 | head -3;
+          echo '';
+          sleep 10;
+        done
+      "
+    volumes:
+      - ./storage:/storage
+    networks:
+      - alpr-network
+
+  # ==================== Dashboard ====================  
+  web-dashboard:
+    build:
+      context: ./worker
+    
+    environment:
+      TZ: Asia/Bangkok
+      DATABASE_URL: postgresql://alpr:alpr@postgres:5432/alpr
+      REDIS_URL: redis://redis:6379/0
+      CAMERAS_CONFIG: >
+        [
+          {"id": "PCN_Lane4", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane5", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265"},
+          {"id": "PCN_Lane6", "rtsp": "rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265"}
+        ]
+      
+      VEHICLE_TRACKING_ENABLED: "true"
+      CAPTURE_ZONE_ENABLED: "true"
+    
+    ports:
+      - "5000:5000"
+    
+    command:
+      - python
+      - web_dashboard.py
+    
+    depends_on:
+      - redis
+      - backend
+    
+    networks:
+      - alpr-network
 
 volumes:
   pgdata:
+  redisdata:
+
+networks:
+  alpr-network:
+    driver: bridge
