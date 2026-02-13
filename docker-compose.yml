@@ -238,20 +238,30 @@ services:
       CAPTURE_ZONE_1_MIN_FILL: "0.15"
       CAPTURE_ZONE_1_COOLDOWN: "2.0"
 
+      # ===== YOLO Vehicle Detector =====
+      VEHICLE_DETECTOR_ENABLED: "true"
+      VEHICLE_DETECTOR_MODEL_PATH: "/models/vehicle.pt"
+      VEHICLE_DETECTOR_CONF: "0.40"
+      VEHICLE_DETECTOR_IOU: "0.45"
+      VEHICLE_DETECTOR_IMGSZ: "640"
+      VEHICLE_DETECTOR_DEVICE: "0"
+      VEHICLE_DETECTOR_CLASSES: "2,3,5,7"
+      VEHICLE_DETECTOR_MIN_ZONE_OVERLAP: "0.20"
+      VEHICLE_DETECTOR_COOLDOWN_SEC: "3.0"
+
     volumes:
       - ./storage:/storage
       - ./debug-logs:/logs
     command:
       - python
       - -m
-      - alpr_worker.rtsp.frame_producer
+      - alpr_worker.rtsp.frame_producer_v2
       - --camera-id
       - PCN_Lane4
       - --rtsp-url
       - rtsp://root:%40WSXcde3@10.210.1.91/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
-      - --enable-tracking
     depends_on:
       postgres:
         condition: service_healthy
@@ -271,6 +281,17 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
+
+      # ===== YOLO Vehicle Detector =====
+      VEHICLE_DETECTOR_ENABLED: "true"
+      VEHICLE_DETECTOR_MODEL_PATH: "/models/vehicle.pt"
+      VEHICLE_DETECTOR_CONF: "0.40"
+      VEHICLE_DETECTOR_IOU: "0.45"
+      VEHICLE_DETECTOR_IMGSZ: "640"
+      VEHICLE_DETECTOR_DEVICE: "0"
+      VEHICLE_DETECTOR_CLASSES: "2,3,5,7"
+      VEHICLE_DETECTOR_MIN_ZONE_OVERLAP: "0.20"
+      VEHICLE_DETECTOR_COOLDOWN_SEC: "3.0"
 
       # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
       VEHICLE_TRACKING_ENABLED: "true"
@@ -332,14 +353,13 @@ services:
     command:
       - python
       - -m
-      - alpr_worker.rtsp.frame_producer
+      - alpr_worker.rtsp.frame_producer_v2
       - --camera-id
       - PCN_Lane5
       - --rtsp-url
       - rtsp://root:%40WSXcde3@10.210.1.92/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
-      - --enable-tracking
     depends_on:
       postgres:
         condition: service_healthy
@@ -359,6 +379,17 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
+
+      # ===== YOLO Vehicle Detector =====
+      VEHICLE_DETECTOR_ENABLED: "true"
+      VEHICLE_DETECTOR_MODEL_PATH: "/models/vehicle.pt"
+      VEHICLE_DETECTOR_CONF: "0.40"
+      VEHICLE_DETECTOR_IOU: "0.45"
+      VEHICLE_DETECTOR_IMGSZ: "640"
+      VEHICLE_DETECTOR_DEVICE: "0"
+      VEHICLE_DETECTOR_CLASSES: "2,3,5,7"
+      VEHICLE_DETECTOR_MIN_ZONE_OVERLAP: "0.20"
+      VEHICLE_DETECTOR_COOLDOWN_SEC: "3.0"
 
       # ===== 🚗 VEHICLE TRACKING (ถ่ายรูปแค่ 1 ครั้งต่อคัน) =====
       VEHICLE_TRACKING_ENABLED: "true"
@@ -420,14 +451,13 @@ services:
     command:
       - python
       - -m
-      - alpr_worker.rtsp.frame_producer
+      - alpr_worker.rtsp.frame_producer_v2
       - --camera-id
       - PCN_Lane6
       - --rtsp-url
       - rtsp://root:%40WSXcde3@10.210.1.93/axis-media/media.amp?videocodec=h265
       - --fps
       - "3.0"
-      - --enable-tracking
     depends_on:
       postgres:
         condition: service_healthy
@@ -538,6 +568,39 @@ services:
       - redis
       - backend
     
+    networks:
+      - alpr-network
+
+
+  alpr-dashboard:
+    build:
+      context: ./worker
+    command: python alpr_dashboard.py
+    ports:
+      - "5001:5001"
+    environment:
+      TZ: Asia/Bangkok
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      DASHBOARD_PORT: "5001"
+      CAMERAS_CONFIG: >
+        [
+          {"id": "PCN_Lane4", "name": "PCN-MM04"},
+          {"id": "PCN_Lane5", "name": "PCN-MM05"},
+          {"id": "PCN_Lane6", "name": "PCN-MM06"}
+        ]
+      CAPTURE_ZONE_ENABLED: "true"
+      CAPTURE_ZONE_COUNT: "1"
+      CAPTURE_ZONE_1_NAME: "PCN_MM04"
+      CAPTURE_ZONE_1_POINTS: "0.226,0.841;0.720,0.696;0.828,0.812;0.279,0.989;0.230,0.846"
+      VEHICLE_DETECTOR_ENABLED: "true"
+      VEHICLE_DETECTOR_MODEL_PATH: "/models/vehicle.pt"
+      VEHICLE_DETECTOR_CONF: "0.40"
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./models:/models
     networks:
       - alpr-network
 
