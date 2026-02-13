@@ -43,6 +43,7 @@ cameras_config: List[Dict[str, Any]] = []
 _stats_history: Dict[str, deque] = {}
 _cameras_config_last_refresh: float = 0.0
 
+
 def _refresh_cameras_config(force: bool = False) -> None:
     global cameras_config, _cameras_config_last_refresh
 
@@ -57,19 +58,24 @@ def _refresh_cameras_config(force: bool = False) -> None:
 
     _cameras_config_last_refresh = now
 
+
 def _normalize_camera_payload(payload: Any) -> List[Dict[str, Any]]:
     if isinstance(payload, dict):
         payload = payload.get("items") or payload.get("cameras") or payload.get("data") or []
 
     if not isinstance(payload, list):
-       
         return []
 
     cameras: List[Dict[str, Any]] = []
     for camera in payload:
         if not isinstance(camera, dict):
             continue
-        camera_id = camera.get("camera_id") or camera.get("id") or camera.get("cameraId") or camera.get("cam_id")
+        camera_id = (
+            camera.get("camera_id")
+            or camera.get("id")
+            or camera.get("cameraId")
+            or camera.get("cam_id")
+        )
         if not camera_id:
             continue
         cameras.append({
@@ -78,28 +84,37 @@ def _normalize_camera_payload(payload: Any) -> List[Dict[str, Any]]:
         })
 
     return cameras
+
+
 def _load_cameras_from_backend() -> List[Dict[str, Any]]:
-    backend_api_url = os.getenv("BACKEND_API_URL") or os.getenv("BACKEND_KPI_URL") or "http://backend:8000"
+    # FIX: รองรับทั้ง BACKEND_API_URL และ BACKEND_KPI_URL (ใน compose ใช้ชื่อต่างกัน)
+    backend_api_url = (
+        os.getenv("BACKEND_API_URL")
+        or os.getenv("BACKEND_KPI_URL")
+        or "http://backend:8000"
+    )
     base_url = backend_api_url.rstrip("/")
+
+    # FIX: สลับลำดับ — ใช้ /api/roi-agent/cameras ก่อน เพราะ /api/cameras คืนค่าว่าง []
     endpoints = [
-        f"{base_url}/api/cameras",
         f"{base_url}/api/roi-agent/cameras",
+        f"{base_url}/api/cameras",
     ]
 
     log.info(f"🔍 Backend URL: {backend_api_url}")
 
     for index, endpoint in enumerate(endpoints):
         try:
-            log.info(f"📡 Trying endpoint {index+1}/2: {endpoint}")
+            log.info(f"📡 Trying endpoint {index+1}/{len(endpoints)}: {endpoint}")
             with urlopen(endpoint, timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-            
+
             log.info(f"📥 Response type: {type(payload).__name__}")
             if isinstance(payload, dict):
                 log.info(f"📥 Response keys: {list(payload.keys())}")
             elif isinstance(payload, list):
                 log.info(f"📥 Response length: {len(payload)}")
-            
+
         except (URLError, TimeoutError) as exc:
             log.warning(f"⚠️  Connection failed ({endpoint}): {exc}")
             continue
@@ -111,16 +126,12 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
         if cameras:
             log.info(f"✅ Got {len(cameras)} cameras: {[c['id'] for c in cameras]}")
             return cameras
-        
-        if index == 0:
-            log.warning("❌ Primary endpoint returned no cameras")
-            # Don't return empty here, try second endpoint
-            continue
 
         log.warning(f"❌ No usable cameras from: {endpoint}")
 
     log.warning("❌ All backend endpoints failed or returned no cameras")
     return []
+
 
 def init_globals():
     global redis_client, db_session_factory, zones_config, detector_info, cameras_config
@@ -143,7 +154,7 @@ def init_globals():
     # Database connection
     try:
         db_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/alpr")
-        log.info(f"Connecting to Database...")
+        log.info("Connecting to Database...")
         engine = create_engine(db_url, pool_pre_ping=True)
         db_session_factory = sessionmaker(bind=engine)
         log.info("✅ Database connected successfully")
@@ -159,10 +170,10 @@ def init_globals():
             zones_config = []
             log.warning(f"⚠️  No zones loaded: {e}")
 
-    # Load cameras - try backend first, then env fallback
+    # Load cameras — ลองจาก backend ก่อน แล้ว fallback ไป env
     log.info("📹 Loading cameras configuration...")
     cameras_config = _load_cameras_from_backend()
-    
+
     if not cameras_config:
         log.warning("⚠️  No cameras from backend API, trying CAMERAS_CONFIG env...")
         try:
@@ -175,14 +186,30 @@ def init_globals():
             cameras_config = []
     else:
         log.info(f"✅ Loaded {len(cameras_config)} cameras from backend API")
-    
+
+    # FIX: normalize cameras จาก env ให้มี key 'id' เสมอ (กันกรณี format ต่างกัน)
+    normalized = []
+    for cam in cameras_config:
+        if not isinstance(cam, dict):
+            continue
+        cam_id = (
+            cam.get("id")
+            or cam.get("camera_id")
+            or cam.get("cameraId")
+            or cam.get("cam_id")
+        )
+        if not cam_id:
+            continue
+        normalized.append({"id": cam_id, "name": cam.get("name") or cam_id})
+    cameras_config = normalized
+
     # Final camera check
     if cameras_config:
-        camera_ids = [c.get('id', 'unknown') for c in cameras_config]
+        camera_ids = [c["id"] for c in cameras_config]
         log.info(f"📹 Active cameras: {camera_ids}")
     else:
         log.error("❌ NO CAMERAS CONFIGURED! Dashboard will be empty!")
-        log.error("   Please check BACKEND_KPI_URL or add CAMERAS_CONFIG env")
+        log.error("   Please check BACKEND_API_URL / BACKEND_KPI_URL or add CAMERAS_CONFIG env")
 
     # Vehicle detector info
     if ALPR_MODULES_AVAILABLE and VehicleDetector:
@@ -195,46 +222,48 @@ def init_globals():
             d.imgsz = int(os.getenv("VEHICLE_DETECTOR_IMGSZ", "640"))
             d.device = os.getenv("VEHICLE_DETECTOR_DEVICE", "0")
             d.min_zone_overlap = float(os.getenv("VEHICLE_DETECTOR_MIN_ZONE_OVERLAP", "0.20"))
-            d.vehicle_classes = [int(c.strip()) for c in os.getenv("VEHICLE_DETECTOR_CLASSES", "2,3,5,7").split(",")]
+            d.vehicle_classes = [
+                int(c.strip())
+                for c in os.getenv("VEHICLE_DETECTOR_CLASSES", "2,3,5,7").split(",")
+            ]
             detector_info = d.get_info()
             log.info("✅ Vehicle detector info loaded")
         except Exception as e:
             detector_info = {}
             log.warning(f"⚠️  Vehicle detector info unavailable: {e}")
-    
+
     log.info("=" * 60)
     log.info(f"Dashboard ready: {len(cameras_config)} cameras, {len(zones_config)} zones")
     log.info("=" * 60)
 
 
 def _get_frame(camera_id: str) -> Optional[bytes]:
-    """Get preview frame from Redis with debug logging"""
+    """Get preview frame from Redis — ลอง 2 key ตามลำดับ"""
     if not redis_client:
         log.debug(f"No Redis client for {camera_id}")
         return None
     try:
-        # Try both keys
         frame = redis_client.get(f"alpr:yolo_preview:{camera_id}")
         if frame:
             log.debug(f"✅ Got frame from alpr:yolo_preview:{camera_id} ({len(frame)} bytes)")
             return frame
-        
+
         frame = redis_client.get(f"alpr:preview:{camera_id}")
         if frame:
             log.debug(f"✅ Got frame from alpr:preview:{camera_id} ({len(frame)} bytes)")
             return frame
-        
-        # No frame found - log once per minute
-        if not hasattr(_get_frame, '_last_warn'):
+
+        # ไม่มี frame — log แค่ทุก 60 วินาทีเพื่อไม่ spam log
+        if not hasattr(_get_frame, "_last_warn"):
             _get_frame._last_warn = {}
-        
+
         now = time.time()
         last = _get_frame._last_warn.get(camera_id, 0)
-        if now - last > 60:  # Log once per minute
+        if now - last > 60:
             _get_frame._last_warn[camera_id] = now
             log.warning(f"❌ No preview frame in Redis for {camera_id}")
-            log.warning(f"   Check: alpr:yolo_preview:{camera_id} or alpr:preview:{camera_id}")
-        
+            log.warning(f"   Check keys: alpr:yolo_preview:{camera_id} / alpr:preview:{camera_id}")
+
         return None
     except Exception as e:
         log.error(f"❌ Redis error for {camera_id}: {e}")
@@ -242,13 +271,16 @@ def _get_frame(camera_id: str) -> Optional[bytes]:
 
 
 def _placeholder(camera_id: str) -> bytes:
+    """สร้าง placeholder frame สีดำพร้อม label ชื่อกล้อง"""
     img = np.zeros((360, 640, 3), dtype=np.uint8)
     cv2.putText(img, camera_id, (20, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (120, 120, 120), 2)
+    cv2.putText(img, "Waiting for stream...", (20, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (80, 80, 80), 1)
     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 70])
     return buf.tobytes() if ok else b""
 
 
 def _gen(camera_id: str):
+    """Generator สำหรับ MJPEG stream"""
     while True:
         data = _get_frame(camera_id) or _placeholder(camera_id)
         yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + data + b"\r\n"
@@ -291,24 +323,32 @@ def _captures(limit: int = 20) -> List[Dict[str, Any]]:
         return []
     db = db_session_factory()
     try:
-        rows = db.execute(text("""
-            SELECT c.id, c.camera_id, c.captured_at, pr.plate_text, pr.confidence, pr.province
-            FROM captures c
-            LEFT JOIN detections d ON d.capture_id = c.id
-            LEFT JOIN plate_reads pr ON pr.detection_id = d.id
-            ORDER BY c.captured_at DESC LIMIT :limit
-        """), {"limit": limit})
-        return [{
-            "id": r.id,
-            "camera_id": r.camera_id or "",
-            "captured_at": r.captured_at.isoformat() if r.captured_at else "",
-            "plate_text": r.plate_text or "",
-            "confidence": round(float(r.confidence or 0), 3),
-            "province": r.province or "",
-        } for r in rows]
+        rows = db.execute(
+            text("""
+                SELECT c.id, c.camera_id, c.captured_at, pr.plate_text, pr.confidence, pr.province
+                FROM captures c
+                LEFT JOIN detections d ON d.capture_id = c.id
+                LEFT JOIN plate_reads pr ON pr.detection_id = d.id
+                ORDER BY c.captured_at DESC LIMIT :limit
+            """),
+            {"limit": limit},
+        )
+        return [
+            {
+                "id": r.id,
+                "camera_id": r.camera_id or "",
+                "captured_at": r.captured_at.isoformat() if r.captured_at else "",
+                "plate_text": r.plate_text or "",
+                "confidence": round(float(r.confidence or 0), 3),
+                "province": r.province or "",
+            }
+            for r in rows
+        ]
     finally:
         db.close()
 
+
+# ==================== Routes ====================
 
 @app.route("/")
 def index():
@@ -326,7 +366,11 @@ def api_stats(camera_id):
     stats = _get_camera_stats(camera_id)
     stats["alive"] = _is_alive(camera_id)
     hist = _stats_history.setdefault(camera_id, deque(maxlen=60))
-    hist.append({"t": int(time.time()), "yolo_triggers": stats.get("yolo_zone_triggers", 0), "enqueued": stats.get("frames_enqueued", 0)})
+    hist.append({
+        "t": int(time.time()),
+        "yolo_triggers": stats.get("yolo_zone_triggers", 0),
+        "enqueued": stats.get("frames_enqueued", 0),
+    })
     stats["history"] = list(hist)[-20:]
     return jsonify(stats)
 
@@ -337,20 +381,37 @@ def api_health():
     db_ok = False
     try:
         if redis_client:
-            redis_client.ping(); redis_ok = True
+            redis_client.ping()
+            redis_ok = True
     except Exception:
         pass
     try:
         if db_session_factory:
-            db = db_session_factory(); db.execute(text("SELECT 1")); db.close(); db_ok = True
+            db = db_session_factory()
+            db.execute(text("SELECT 1"))
+            db.close()
+            db_ok = True
     except Exception:
         pass
-    return jsonify({"redis": redis_ok, "database": db_ok, "zones_count": len(zones_config), "cameras_count": len(cameras_config)})
+    return jsonify({
+        "redis": redis_ok,
+        "database": db_ok,
+        "zones_count": len(zones_config),
+        "cameras_count": len(cameras_config),
+    })
 
 
 @app.route("/api/zones")
 def api_zones():
-    return jsonify([{"name": z.name, "points": z.points, "min_fill_ratio": z.min_fill_ratio, "cooldown_sec": z.cooldown_sec} for z in zones_config])
+    return jsonify([
+        {
+            "name": z.name,
+            "points": z.points,
+            "min_fill_ratio": z.min_fill_ratio,
+            "cooldown_sec": z.cooldown_sec,
+        }
+        for z in zones_config
+    ])
 
 
 @app.route("/api/detector")
@@ -362,6 +423,8 @@ def api_detector():
 def api_captures():
     return jsonify(_captures(request.args.get("limit", 20, type=int)))
 
+
+# ==================== HTML Template ====================
 
 HTML = """
 <!doctype html>
@@ -403,10 +466,15 @@ HTML = """
 </html>
 """
 
+
 def main():
-    logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname)s [%(name)s] %(message)s",
+    )
     init_globals()
-    port = int(os.getenv("DASHBOARD_PORT", "5001"))
+    # FIX: default port เปลี่ยนเป็น 5000 ให้ตรงกับ docker-compose.yml (เดิมเป็น 5001)
+    port = int(os.getenv("DASHBOARD_PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
 
 
