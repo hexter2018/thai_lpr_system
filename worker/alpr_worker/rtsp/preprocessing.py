@@ -17,6 +17,15 @@ import logging
 
 log = logging.getLogger(__name__)
 
+class ImagePreprocessor:
+    """Backward-compatible preprocessor interface used by frame_producer."""
+
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+
+    def enhance(self, image: np.ndarray) -> np.ndarray:
+        """Enhance input frame for downstream detection."""
+        return auto_enhance(image, debug=self.debug)
 
 def enhance_night_image(image: np.ndarray) -> np.ndarray:
     """
