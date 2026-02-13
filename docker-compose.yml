@@ -560,6 +560,15 @@ services:
       DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
       BACKEND_KPI_URL: http://backend:8000
       DASHBOARD_PORT: "5000"
+      
+      # ⭐ FIX: Add CAMERAS_CONFIG (ใช้เมื่อ backend API ไม่ตอบ)
+      CAMERAS_CONFIG: >
+        [
+          {"id": "PCN_Lane4", "name": "PCN-MM04"},
+          {"id": "PCN_Lane5", "name": "PCN-MM05"},
+          {"id": "PCN_Lane6", "name": "PCN-MM06"}
+        ]
+      
       CAPTURE_ZONE_ENABLED: "true"
       CAPTURE_ZONE_COUNT: "1"
       CAPTURE_ZONE_1_NAME: "PCN_MM04"

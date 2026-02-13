@@ -86,54 +86,105 @@ def _load_cameras_from_backend() -> List[Dict[str, Any]]:
         f"{base_url}/api/roi-agent/cameras",
     ]
 
+    log.info(f"🔍 Backend URL: {backend_api_url}")
+
     for index, endpoint in enumerate(endpoints):
         try:
+            log.info(f"📡 Trying endpoint {index+1}/2: {endpoint}")
             with urlopen(endpoint, timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except (URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-            log.warning("Unable to load cameras from backend API (%s): %s", endpoint, exc)
+            
+            log.info(f"📥 Response type: {type(payload).__name__}")
+            if isinstance(payload, dict):
+                log.info(f"📥 Response keys: {list(payload.keys())}")
+            elif isinstance(payload, list):
+                log.info(f"📥 Response length: {len(payload)}")
+            
+        except (URLError, TimeoutError) as exc:
+            log.warning(f"⚠️  Connection failed ({endpoint}): {exc}")
+            continue
+        except (json.JSONDecodeError, ValueError) as exc:
+            log.warning(f"⚠️  Invalid JSON ({endpoint}): {exc}")
             continue
 
         cameras = _normalize_camera_payload(payload)
         if cameras:
+            log.info(f"✅ Got {len(cameras)} cameras: {[c['id'] for c in cameras]}")
             return cameras
         
         if index == 0:
-            return []
+            log.warning("❌ Primary endpoint returned no cameras")
+            # Don't return empty here, try second endpoint
+            continue
 
-        log.warning("Camera API returned no usable cameras: %s", endpoint)
+        log.warning(f"❌ No usable cameras from: {endpoint}")
 
+    log.warning("❌ All backend endpoints failed or returned no cameras")
     return []
 
 def init_globals():
     global redis_client, db_session_factory, zones_config, detector_info, cameras_config
 
+    log.info("=" * 60)
+    log.info("🚀 Initializing ALPR Dashboard")
+    log.info("=" * 60)
+
+    # Redis connection
     redis_client = None
     try:
-        redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        log.info(f"Connecting to Redis: {redis_url}")
+        redis_client = Redis.from_url(redis_url)
         redis_client.ping()
+        log.info("✅ Redis connected successfully")
     except Exception as exc:
-        log.warning("Redis unavailable: %s", exc)
+        log.error(f"❌ Redis connection failed: {exc}")
 
+    # Database connection
     try:
-        engine = create_engine(os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/alpr"), pool_pre_ping=True)
+        db_url = os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/alpr")
+        log.info(f"Connecting to Database...")
+        engine = create_engine(db_url, pool_pre_ping=True)
         db_session_factory = sessionmaker(bind=engine)
+        log.info("✅ Database connected successfully")
     except Exception as exc:
-        log.warning("Database unavailable: %s", exc)
+        log.error(f"❌ Database connection failed: {exc}")
 
+    # Load zones
     if ALPR_MODULES_AVAILABLE and load_zones_from_env:
         try:
             zones_config = load_zones_from_env()
-        except Exception:
+            log.info(f"✅ Loaded {len(zones_config)} capture zones")
+        except Exception as e:
             zones_config = []
+            log.warning(f"⚠️  No zones loaded: {e}")
 
+    # Load cameras - try backend first, then env fallback
+    log.info("📹 Loading cameras configuration...")
     cameras_config = _load_cameras_from_backend()
+    
     if not cameras_config:
+        log.warning("⚠️  No cameras from backend API, trying CAMERAS_CONFIG env...")
         try:
-            cameras_config = json.loads(os.getenv("CAMERAS_CONFIG", "[]"))
-        except Exception:
+            cameras_json = os.getenv("CAMERAS_CONFIG", "[]")
+            log.info(f"CAMERAS_CONFIG raw: {cameras_json[:100]}...")
+            cameras_config = json.loads(cameras_json)
+            log.info(f"✅ Loaded {len(cameras_config)} cameras from environment")
+        except Exception as e:
+            log.error(f"❌ Failed to parse CAMERAS_CONFIG: {e}")
             cameras_config = []
+    else:
+        log.info(f"✅ Loaded {len(cameras_config)} cameras from backend API")
+    
+    # Final camera check
+    if cameras_config:
+        camera_ids = [c.get('id', 'unknown') for c in cameras_config]
+        log.info(f"📹 Active cameras: {camera_ids}")
+    else:
+        log.error("❌ NO CAMERAS CONFIGURED! Dashboard will be empty!")
+        log.error("   Please check BACKEND_KPI_URL or add CAMERAS_CONFIG env")
 
+    # Vehicle detector info
     if ALPR_MODULES_AVAILABLE and VehicleDetector:
         try:
             d = VehicleDetector.__new__(VehicleDetector)
@@ -146,16 +197,47 @@ def init_globals():
             d.min_zone_overlap = float(os.getenv("VEHICLE_DETECTOR_MIN_ZONE_OVERLAP", "0.20"))
             d.vehicle_classes = [int(c.strip()) for c in os.getenv("VEHICLE_DETECTOR_CLASSES", "2,3,5,7").split(",")]
             detector_info = d.get_info()
-        except Exception:
+            log.info("✅ Vehicle detector info loaded")
+        except Exception as e:
             detector_info = {}
+            log.warning(f"⚠️  Vehicle detector info unavailable: {e}")
+    
+    log.info("=" * 60)
+    log.info(f"Dashboard ready: {len(cameras_config)} cameras, {len(zones_config)} zones")
+    log.info("=" * 60)
 
 
 def _get_frame(camera_id: str) -> Optional[bytes]:
+    """Get preview frame from Redis with debug logging"""
     if not redis_client:
+        log.debug(f"No Redis client for {camera_id}")
         return None
     try:
-        return redis_client.get(f"alpr:yolo_preview:{camera_id}") or redis_client.get(f"alpr:preview:{camera_id}")
-    except Exception:
+        # Try both keys
+        frame = redis_client.get(f"alpr:yolo_preview:{camera_id}")
+        if frame:
+            log.debug(f"✅ Got frame from alpr:yolo_preview:{camera_id} ({len(frame)} bytes)")
+            return frame
+        
+        frame = redis_client.get(f"alpr:preview:{camera_id}")
+        if frame:
+            log.debug(f"✅ Got frame from alpr:preview:{camera_id} ({len(frame)} bytes)")
+            return frame
+        
+        # No frame found - log once per minute
+        if not hasattr(_get_frame, '_last_warn'):
+            _get_frame._last_warn = {}
+        
+        now = time.time()
+        last = _get_frame._last_warn.get(camera_id, 0)
+        if now - last > 60:  # Log once per minute
+            _get_frame._last_warn[camera_id] = now
+            log.warning(f"❌ No preview frame in Redis for {camera_id}")
+            log.warning(f"   Check: alpr:yolo_preview:{camera_id} or alpr:preview:{camera_id}")
+        
+        return None
+    except Exception as e:
+        log.error(f"❌ Redis error for {camera_id}: {e}")
         return None
 
 
