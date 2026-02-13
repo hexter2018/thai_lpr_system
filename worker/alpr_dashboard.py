@@ -56,7 +56,7 @@ def _refresh_cameras_config(force: bool = False) -> None:
         cameras_config = refreshed
 
     _cameras_config_last_refresh = now
-    
+
 def _load_cameras_from_backend() -> List[Dict[str, Any]]:
     backend_api_url = os.getenv("BACKEND_API_URL", "http://backend:8000")
     endpoint = f"{backend_api_url.rstrip('/')}/api/cameras"
@@ -263,11 +263,44 @@ def api_captures():
 
 
 HTML = """
-<!doctype html><html><head><meta charset='utf-8'><title>ALPR YOLO Dashboard</title>
-<style>body{font-family:Arial;background:#0b0f16;color:#dce6f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:12px}.card{border:1px solid #223;background:#111b2a}.h{padding:8px 10px;border-bottom:1px solid #223}.c{padding:8px}.c img{width:100%}</style>
-</head><body><h2>ALPR YOLO Monitor</h2><div class='grid'>{% for cam in cameras %}<div class='card'><div class='h'>{{ cam.name or cam.id }}</div><div class='c'><img src='/video/{{ cam.id }}'></div></div>{% endfor %}</div></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <title>ALPR YOLO Dashboard</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#0b0f16;color:#dce6f2;margin:0;padding:24px}
+    h2{margin:0 0 16px}
+    .hint{margin:0 0 16px;padding:10px 12px;border:1px solid #31415a;border-radius:8px;background:#122033;color:#b8c8dc}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:12px}
+    .card{border:1px solid #223;background:#111b2a;border-radius:10px;overflow:hidden}
+    .h{padding:8px 10px;border-bottom:1px solid #223;font-weight:700}
+    .c{padding:8px}
+    .c img{width:100%;display:block;min-height:220px;background:#05090f}
+    .empty{padding:24px;border:1px dashed #31415a;border-radius:10px;background:#0f1826;color:#b8c8dc}
+  </style>
+</head>
+<body>
+  <h2>ALPR YOLO Monitor</h2>
+  {% if not cameras %}
+    <div class='empty'>
+      <strong>No cameras available.</strong>
+      <div style='margin-top:8px'>Please add/enable cameras in backend first, then refresh this page.</div>
+    </div>
+  {% else %}
+    <p class='hint'>Showing {{ cameras|length }} camera(s). Streams update automatically.</p>
+    <div class='grid'>
+      {% for cam in cameras %}
+      <div class='card'>
+        <div class='h'>{{ cam.name or cam.id }}</div>
+        <div class='c'><img src='/video/{{ cam.id }}' alt='Camera {{ cam.id }} stream'></div>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</body>
+</html>
 """
-
 
 def main():
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
