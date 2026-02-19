@@ -20,8 +20,10 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY requirements.txt .
 
-# Install ByteTrack dependencies (cython-bbox needs Cython available without build isolation)
-RUN pip install --no-cache-dir \
+# Install ByteTrack dependencies (cython-bbox needs build deps available without isolation)
+RUN python3.11 -m pip install --no-cache-dir \
+    numpy \
+    cython \
     --no-build-isolation cython-bbox \
     lap \
     filterpy
