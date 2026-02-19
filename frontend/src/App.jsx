@@ -1,23 +1,29 @@
-import React from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
-import AppLayout from './components/AppLayout.jsx'
-import Dashboard from './pages/Dashboard.jsx'
-import Upload from './pages/Upload.jsx'
-import Queue from './pages/Queue.jsx'
-import Master from './pages/Master.jsx'
-import Reports from './pages/Reports.jsx'
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import CameraManagement from './pages/CameraManagement';
+import LiveMonitoring from './pages/LiveMonitoring';
+import Verification from './pages/Verification';
+import Analytics from './pages/Analytics';
+import TrackHistory from './pages/TrackHistory';
 
-export default function App() {
+function App() {
   return (
-    <Routes>
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/upload" element={<Upload />} />
-        <Route path="/queue" element={<Queue />} />
-        <Route path="/master" element={<Master />} />
-        <Route path="/reports" element={<Reports />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  )
+    <Router>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/cameras" element={<CameraManagement />} />
+          <Route path="/live/:cameraId?" element={<LiveMonitoring />} />
+          <Route path="/verification" element={<Verification />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/tracks" element={<TrackHistory />} />
+        </Routes>
+      </Layout>
+    </Router>
+  );
 }
+
+export default App;
