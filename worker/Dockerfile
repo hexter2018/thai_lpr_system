@@ -20,7 +20,10 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install build dependencies first
+RUN pip install --no-cache-dir Cython>=0.29.0 numpy==1.24.3
+
+# Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
