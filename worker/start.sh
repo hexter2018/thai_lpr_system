@@ -3,12 +3,21 @@ set -euo pipefail
 
 export PYTHONPATH=/app
 
-echo "[worker] python:" && python -V
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+else
+  echo "[worker] ERROR: Python interpreter not found in PATH"
+  exit 1
+fi
+
+echo "[worker] python:" && "$PYTHON_BIN" -V
 
 # Auto build/select TensorRT engine per GPU
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "[worker] NVIDIA GPU detected. Ensuring TensorRT engine..."
-  python /app/bin/ensure_engine.py || {
+  "$PYTHON_BIN" /app/bin/ensure_engine.py || {
     echo "[worker] WARNING: Engine build failed, will attempt fallback"
   }
 
@@ -41,7 +50,7 @@ fi
 echo "[worker] starting celery..."
 if [[ "${PRELOAD_MODELS:-1}" == "1" ]]; then
   echo "[worker] preloading detector and OCR models..."
-  python - <<'PY'
+  "$PYTHON_BIN" - <<'PY'
 from alpr_worker.inference.detector import PlateDetector
 from alpr_worker.inference.ocr import PlateOCR
 

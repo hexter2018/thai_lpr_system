@@ -5,11 +5,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg2://alpr:alpr@localhost:5432/alpr"
     redis_url: str = "redis://localhost:6379/0"
     storage_dir: str = "./storage"
-    cors_origins: str = (
-        "http://localhost:5173",
-        "http://10.32.70.136",
-        "http://10.32.70.136:5173"
-    )
+    cors_origins: str = "http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173"
     @property
     def cors_origins_list(self):
         if not self.cors_origins:
