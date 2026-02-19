@@ -61,15 +61,21 @@ async def upload_one(file: UploadFile = File(...), db: Session = Depends(get_db)
     db.commit()
     db.refresh(cap)
 
-    enqueue_process_capture(cap.id, str(out_path))
+    queued = enqueue_process_capture(cap.id, str(out_path))
 
-    return {"capture_id": cap.id, "original_path": str(out_path)}
+    return {
+        "capture_id": cap.id,
+        "original_path": str(out_path),
+        "queued": queued,
+        "message": None if queued else "Capture saved but queue is unavailable. Start worker/redis and retry processing.",
+    }
 
 @router.post("/upload/batch")
 async def upload_batch(files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
     storage = resolve_storage_dir()
 
     ids = []
+    queue_failures = []
     for file in files:
         ext = Path(file.filename).suffix.lower() or ".jpg"
         fname = f"{uuid.uuid4().hex}{ext}"
@@ -83,7 +89,15 @@ async def upload_batch(files: list[UploadFile] = File(...), db: Session = Depend
         db.commit()
         db.refresh(cap)
 
-        enqueue_process_capture(cap.id, str(out_path))
+        queued = enqueue_process_capture(cap.id, str(out_path))
+        if not queued:
+            queue_failures.append(cap.id)
         ids.append(cap.id)
 
-    return {"capture_ids": ids, "count": len(ids)}
+    return {
+        "capture_ids": ids,
+        "count": len(ids),
+        "queued_count": len(ids) - len(queue_failures),
+        "failed_to_queue": queue_failures,
+        "message": None if not queue_failures else "Some captures were saved but not queued. Start worker/redis and retry processing.",
+    }
