@@ -46,6 +46,12 @@ RUN python3 -m pip install --no-cache-dir lapx
 # Copy requirements
 COPY requirements.gpu.txt .
 
+# pycuda (via boost-python) can hit GCC nonnull warnings that are treated as
+# build failures on newer toolchains. Relax that specific diagnostic so the
+# extension can compile during image builds.
+ENV CFLAGS="-Wno-error=nonnull -Wno-nonnull"
+ENV CXXFLAGS="-Wno-error=nonnull -Wno-nonnull"
+
 # Install remaining Python dependencies
 RUN python3 -m pip install --no-cache-dir -r requirements.gpu.txt
 
