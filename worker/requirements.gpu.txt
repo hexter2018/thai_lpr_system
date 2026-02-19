@@ -7,12 +7,15 @@ sqlalchemy==2.0.23
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
 
-# Deep Learning - CPU
-torch==2.1.2
-torchvision==0.16.2
+# Deep Learning - GPU
+torch==2.1.2+cu121
+torchvision==0.16.2+cu121
+--extra-index-url https://download.pytorch.org/whl/cu121
 
-# YOLO
+# YOLO/TensorRT
 ultralytics==8.1.0
+tensorrt==8.6.1
+pycuda==2022.2.2
 
 # OCR
 easyocr==1.7.0
