@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const proxyTarget = env.VITE_PROXY_TARGET || "http://localhost:8000";
+  const hmrHost = env.VITE_HMR_HOST;
+  const hmrClientPort = env.VITE_HMR_CLIENT_PORT
+    ? Number(env.VITE_HMR_CLIENT_PORT)
+    : undefined;
 
   return {
     plugins: [react()],
@@ -20,9 +24,8 @@ export default defineConfig(({ mode }) => {
     // ✅ แก้ HMR websocket ให้ชี้ไป IP ที่เปิดเว็บอยู่จริง
     hmr: {
       protocol: "ws",
-      host: "10.32.70.136",
-      port: 5173,
-      clientPort: 8000,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
+      ...(hmrHost ? { host: hmrHost } : {}),
+      ...(hmrClientPort ? { clientPort: hmrClientPort } : {}),
     },
 
     proxy: {
