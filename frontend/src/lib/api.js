@@ -1,5 +1,19 @@
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 
+async function buildError(res, fallbackMessage) {
+  let detail = "";
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") detail = data.detail;
+  } catch (_) {
+    const text = await res.text().catch(() => "");
+    detail = text || "";
+  }
+
+  const base = `${fallbackMessage} (status ${res.status})`;
+  throw new Error(detail ? `${base}: ${detail}` : base);
+}
+
 export async function getKPI() {
   const res = await fetch(`${API_BASE}/api/dashboard/kpi`);
   if (!res.ok) throw new Error("failed to load KPI");
@@ -10,7 +24,7 @@ export async function uploadSingle(file) {
   const fd = new FormData();
   fd.append("file", file);
   const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: fd });
-  if (!res.ok) throw new Error("upload failed");
+  if (!res.ok) await buildError(res, "upload failed");
   return res.json();
 }
 
@@ -18,7 +32,7 @@ export async function uploadBatch(files) {
   const fd = new FormData();
   for (const f of files) fd.append("files", f);
   const res = await fetch(`${API_BASE}/api/upload/batch`, { method: "POST", body: fd });
-  if (!res.ok) throw new Error("batch upload failed");
+  if (!res.ok) await buildError(res, "batch upload failed");
   return res.json();
 }
 
