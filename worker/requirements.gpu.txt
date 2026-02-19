@@ -1,3 +1,6 @@
+# Build dependencies are installed in Dockerfile
+# Cython and numpy installed first
+
 # Core
 celery==5.3.4
 redis==5.0.1
@@ -23,13 +26,10 @@ Pillow==10.1.0
 
 # Computer Vision
 opencv-python==4.8.1.78
-numpy==1.24.3
 scipy==1.11.4
 
-# Tracking
-filterpy==1.4.5
-scikit-image==0.22.0
-lap==0.4.0
+# Tracking packages installed separately in Dockerfile
+# filterpy, scikit-image, cython-bbox, lap
 
 # Utilities
 python-dotenv==1.0.0

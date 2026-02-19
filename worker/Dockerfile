@@ -17,16 +17,22 @@ RUN apt-get update && apt-get install -y \
     libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install build dependencies first
+RUN pip install --no-cache-dir \
+    Cython==0.29.36 \
+    numpy==1.24.3
+
+# Install tracking packages that need Cython
+RUN pip install --no-cache-dir \
+    filterpy==1.4.5 \
+    scikit-image==0.22.0
+
+RUN pip install --no-cache-dir cython-bbox==0.1.3
+
+RUN pip install --no-cache-dir lap==0.4.0
+
 # Copy requirements
 COPY requirements.txt .
-
-# Install ByteTrack dependencies (cython-bbox needs build deps available without isolation)
-RUN python3.11 -m pip install --no-cache-dir \
-    numpy \
-    cython \
-    --no-build-isolation cython-bbox \
-    lap \
-    filterpy
 
 # Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
