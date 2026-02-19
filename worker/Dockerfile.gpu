@@ -1,0 +1,71 @@
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libopencv-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN python3.11 -m pip install --upgrade pip setuptools wheel
+
+# Copy requirements
+COPY requirements.gpu.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.gpu.txt
+
+# Install TensorRT (if not included in CUDA image)
+RUN pip install --no-cache-dir tensorrt
+
+# Install EasyOCR with GPU support
+RUN pip install --no-cache-dir easyocr[gpu]
+
+# Install ByteTrack dependencies
+RUN pip install --no-cache-dir \
+    cython-bbox \
+    lap \
+    filterpy
+
+# Copy application code
+COPY . /app/
+
+# Create directories
+RUN mkdir -p /models /storage/captures /storage/crops /storage/retrain_easyocr
+
+# TensorRT environment
+ENV TRT_WORKSPACE=6144
+ENV TRT_FP16=1
+ENV CUDA_MODULE_LOADING=LAZY
+
+# Set CUDA device
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3.11 -c "import torch; assert torch.cuda.is_available()" || exit 1
+
+# Run Celery worker
+CMD ["celery", "-A", "worker.celery_app", "worker", \
+     "--loglevel=info", \
+     "--concurrency=2", \
+     "--pool=threads", \
+     "-Q", "lpr,tracking,training"]

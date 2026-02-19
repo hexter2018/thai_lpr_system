@@ -1,18 +1,40 @@
-FROM nvcr.io/nvidia/tensorrt:25.12-py3
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libgl1-mesa-glx \
     libglib2.0-0 \
-    libxcb1 \
-    libgl1 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Copy requirements
+COPY requirements.txt .
 
-COPY . /app
-RUN chmod +x /app/start.sh /app/bin/ensure_engine.py || true
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["/app/start.sh"]
+# Copy application code
+COPY . /app/
+
+# Create directories
+RUN mkdir -p /models /storage/captures /storage/crops /storage/retrain_easyocr
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD celery -A worker.celery_app inspect ping || exit 1
+
+# Run Celery worker
+CMD ["celery", "-A", "worker.celery_app", "worker", \
+     "--loglevel=info", \
+     "--concurrency=2", \
+     "-Q", "lpr,tracking,training"]

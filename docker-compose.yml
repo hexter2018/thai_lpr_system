@@ -68,7 +68,7 @@ services:
   worker-gpu:
     build:
       context: ./worker
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.gpu
     deploy:
       resources:
         reservations:
