@@ -31,6 +31,11 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip
 RUN python3 -m pip install --upgrade pip setuptools wheel
 
+# The tensorrt sdist invokes `/usr/bin/python3 -m pip` during wheel build.
+# In some CUDA base images that interpreter does not have pip bootstrapped,
+# so ensure both python entrypoints can execute `-m pip` before requirements.
+RUN /usr/bin/python3 -m pip --version || (wget -qO- https://bootstrap.pypa.io/get-pip.py | /usr/bin/python3)
+
 # Install build dependencies first
 RUN python3 -m pip install --no-cache-dir \
     Cython==0.29.36 \
