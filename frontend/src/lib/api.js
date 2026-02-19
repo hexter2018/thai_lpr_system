@@ -93,26 +93,6 @@ export async function upsertCamera(payload) {
   return res.json();
 }
 
-export async function rtspStart(payload) {
-  const res = await fetch(`${API_BASE}/api/rtsp/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error("rtsp start failed");
-  return res.json();
-}
-
-export async function rtspStop(cameraId) {
-  const res = await fetch(`${API_BASE}/api/rtsp/stop`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ camera_id: cameraId })
-  });
-  if (!res.ok) throw new Error("rtsp stop failed");
-  return res.json();
-}
-
 // image url already includes /api/images?path=...
 export function absImageUrl(pathOrUrl) {
   if (!pathOrUrl) return "";

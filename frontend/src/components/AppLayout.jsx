@@ -14,7 +14,6 @@ function Icon({ type }) {
   if (type === 'upload') return <svg viewBox="0 0 24 24" fill="none" className={cls}><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
   if (type === 'queue') return <svg viewBox="0 0 24 24" fill="none" className={cls}><path d="M8 6h12M8 12h12M8 18h12M3 6h.01M3 12h.01M3 18h.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
   if (type === 'db') return <svg viewBox="0 0 24 24" fill="none" className={cls}><ellipse cx="12" cy="5" rx="8" ry="3" stroke="currentColor" strokeWidth="1.8"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" stroke="currentColor" strokeWidth="1.8"/></svg>
-  if (type === 'cam') return <svg viewBox="0 0 24 24" fill="none" className={cls}><rect x="3" y="6" width="13" height="12" rx="2" stroke="currentColor" strokeWidth="1.8"/><path d="m16 10 5-3v10l-5-3z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
   if (type === 'report') return <svg viewBox="0 0 24 24" fill="none" className={cls}><path d="M9 17H7A5 5 0 0 1 7 7h2m6 10h2a5 5 0 0 0 0-10h-2m-7 5h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
   return <svg viewBox="0 0 24 24" fill="none" className={cls}><path d="M4 19h16M7 16V9m5 7V5m5 11v-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
 }
@@ -56,6 +55,7 @@ export default function AppLayout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  end={item.to === '/'}
                   className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : 'nav-item-idle'}`}
                 >
                   <Icon type={item.icon} />

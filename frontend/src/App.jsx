@@ -5,11 +5,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import Upload from './pages/Upload.jsx'
 import Queue from './pages/Queue.jsx'
 import Master from './pages/Master.jsx'
-import Rtsp from './pages/Rtsp.jsx'
 import Reports from './pages/Reports.jsx'
-import RTSPMonitor from "./pages/RTSPMonitor";
-import RoiAgent from "./pages/roi.jsx";
-import ZoneDashboard from "./pages/ZoneDashboard";
 
 export default function App() {
   return (
@@ -20,10 +16,6 @@ export default function App() {
         <Route path="/queue" element={<Queue />} />
         <Route path="/master" element={<Master />} />
         <Route path="/reports" element={<Reports />} />
-        <Route path="/rtsp" element={<Rtsp />} />
-        <Route path="/rtspmonitor" element={<RTSPMonitor />} />
-        <Route path="/roi-agent" element={<RoiAgent />} />
-        <Route path="/zone-dashboard" element={<ZoneDashboard />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
