@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Install build dependencies first
-RUN pip install --no-cache-dir Cython>=0.29.0 numpy==1.24.3
+RUN pip install --no-cache-dir 'Cython>=0.29.0' numpy==1.24.3
 
 # Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
