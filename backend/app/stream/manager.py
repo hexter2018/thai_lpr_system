@@ -51,7 +51,7 @@ class StreamManagerService:
             )
             
             # Start capture in background
-            asyncio.create_task(manager.start_capture())
+            manager._capture_task = asyncio.create_task(manager.start_capture())
             
             self.rtsp_managers[camera.camera_id] = manager
             

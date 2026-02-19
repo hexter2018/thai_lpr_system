@@ -296,3 +296,82 @@ class RTSPStreamManager:
             log.info("MJPEG server started on port %d", self.mjpeg_port)
         
         asyncio.create_task(start_server())
+
+class RTSPManager:
+    """Single-camera RTSP manager used by StreamManagerService."""
+
+    def __init__(
+        self,
+        camera_id: str,
+        rtsp_url: str,
+        fps_target: int = 10,
+        codec: str = "h264",
+        zone_polygon: Optional[List[Dict[str, int]]] = None,
+    ):
+        self.camera_id = camera_id
+        self.rtsp_url = rtsp_url
+        self.fps_target = fps_target
+        self.codec = codec
+        self.zone_polygon = zone_polygon
+
+        self._cap: Optional[cv2.VideoCapture] = None
+        self._capture_task: Optional[asyncio.Task] = None
+        self._running = False
+        self._frame_lock = threading.Lock()
+        self._latest_frame: Optional[np.ndarray] = None
+
+    async def start_capture(self):
+        """Start continuously reading frames for one camera."""
+        reconnect_delay = int(os.getenv("RTSP_RECONNECT_DELAY", "5"))
+        frame_delay = 1.0 / self.fps_target if self.fps_target > 0 else 0.1
+
+        self._running = True
+
+        while self._running:
+            if self._cap is None or not self._cap.isOpened():
+                self._cap = cv2.VideoCapture(self.rtsp_url)
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, int(os.getenv("RTSP_BUFFER_SIZE", "2")))
+
+                if not self._cap.isOpened():
+                    log.warning("[%s] failed to open RTSP stream, retrying", self.camera_id)
+                    await asyncio.sleep(reconnect_delay)
+                    continue
+
+            ret, frame = self._cap.read()
+            if not ret:
+                log.warning("[%s] frame read failed, reconnecting", self.camera_id)
+                self._cap.release()
+                self._cap = None
+                await asyncio.sleep(reconnect_delay)
+                continue
+
+            with self._frame_lock:
+                self._latest_frame = frame.copy()
+
+            await asyncio.sleep(frame_delay)
+
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
+    async def stop(self):
+        """Stop frame capture for this camera."""
+        self._running = False
+
+        if self._capture_task and not self._capture_task.done():
+            self._capture_task.cancel()
+            try:
+                await self._capture_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
+    def get_latest_frame(self) -> Optional[np.ndarray]:
+        """Get latest frame snapshot for MJPEG serving."""
+        with self._frame_lock:
+            if self._latest_frame is None:
+                return None
+            return self._latest_frame.copy()
