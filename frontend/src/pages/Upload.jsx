@@ -25,7 +25,8 @@ export default function Upload() {
     setMsg('')
     try {
       const r = await uploadSingle(single)
-      setMsg(`Uploaded capture_id=${r.capture_id}`)
+      const queueNote = r.queued === false ? ` (${r.message || 'not queued'})` : ''
+      setMsg(`Uploaded capture_id=${r.capture_id}${queueNote}`)
       navigate('/queue')
     } catch (e) {
       setMsg(String(e))
@@ -40,7 +41,8 @@ export default function Upload() {
     setMsg('')
     try {
       const r = await uploadBatch(multi)
-      setMsg(`Uploaded batch: count=${r.count}`)
+      const queueNote = r.failed_to_queue?.length ? ` (queued ${r.queued_count}/${r.count})` : ''
+      setMsg(`Uploaded batch: count=${r.count}${queueNote}`)
       navigate('/queue')
     } catch (e) {
       setMsg(String(e))
