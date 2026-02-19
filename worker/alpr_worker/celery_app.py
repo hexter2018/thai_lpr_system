@@ -9,7 +9,6 @@ celery_app = Celery(
     backend=REDIS_URL,
 )
 
-# ✅ ให้ Celery ไปหา tasks ใน package นี้
 celery_app.autodiscover_tasks(["alpr_worker"])
 
 celery_app.conf.update(

@@ -5,7 +5,7 @@ export PYTHONPATH=/app
 
 echo "[worker] python:" && python -V
 
-# Auto build/select engine per GPU (if GPU available)
+# Auto build/select TensorRT engine per GPU
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "[worker] NVIDIA GPU detected. Ensuring TensorRT engine..."
   python /app/bin/ensure_engine.py || {
@@ -50,4 +50,8 @@ PlateOCR()
 print("[worker] preload complete")
 PY
 fi
-celery -A alpr_worker.celery_app:celery_app worker -l info --pool=solo -Q default,celery
+
+celery -A alpr_worker.celery_app:celery_app worker \
+  -l info \
+  --pool=solo \
+  -Q default,celery
