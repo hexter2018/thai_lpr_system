@@ -1,4 +1,7 @@
-import os, hashlib, uuid
+import hashlib
+import logging
+import os
+import uuid
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from sqlalchemy.orm import Session
@@ -9,6 +12,7 @@ from app.db import models
 from app.services.queue import enqueue_process_capture
 
 router = APIRouter()
+logging = logging.getLogger(__name__)
 
 def resolve_storage_dir() -> Path:
     preferred = Path(settings.storage_dir)

@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
       protocol: "ws",
       host: "10.32.70.136",
       port: 5173,
-      clientPort: 80,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
+      clientPort: 8000,  // ✅ ช่วยในกรณีอยู่หลัง NAT/Proxy/Docker
     },
 
     proxy: {
