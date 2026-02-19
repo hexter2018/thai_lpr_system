@@ -20,8 +20,11 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY requirements.txt .
 
-# Install build dependencies first
-RUN pip install --no-cache-dir 'Cython>=0.29.0' numpy==1.24.3
+# Install ByteTrack dependencies (cython-bbox needs Cython available without build isolation)
+RUN pip install --no-cache-dir \
+    --no-build-isolation cython-bbox \
+    lap \
+    filterpy
 
 # Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
