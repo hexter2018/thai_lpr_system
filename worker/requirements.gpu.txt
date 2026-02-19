@@ -17,8 +17,10 @@ torchvision==0.16.2+cu121
 
 # YOLO/TensorRT
 ultralytics==8.1.0
-tensorrt==8.6.1
-pycuda==2022.2.2
+# TensorRT Python wheels are hosted on NVIDIA's index
+--extra-index-url https://pypi.nvidia.com
+tensorrt-cu12==10.0.1
+pycuda==2024.1.2
 
 # OCR
 easyocr==1.7.0
