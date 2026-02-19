@@ -56,6 +56,10 @@ async def _store_file(upload: UploadFile, storage: Path) -> tuple[Path, str]:
     return out_path, sha256_file(out_path)
 
 def _save_capture(db: Session, out_path: Path, digest: str) -> models.Capture:
+    cap = models.Capture(
+        original_path=str(out_path),
+        sha256=digest,
+    )
     try:
         db.add(cap)
         db.commit()
