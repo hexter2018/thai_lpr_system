@@ -1,27 +1,29 @@
+version: '3.8'
+
 services:
-  # ==================== Core Infrastructure ====================
+  # ==================== Infrastructure ====================
   postgres:
     image: postgres:16
     environment:
       TZ: Asia/Bangkok
-      POSTGRES_USER: alpr
-      POSTGRES_PASSWORD: alpr
-      POSTGRES_DB: alpr
+      POSTGRES_USER: lpr
+      POSTGRES_PASSWORD: lpr2024
+      POSTGRES_DB: lpr_v2
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U alpr -d alpr -h 127.0.0.1 -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -U lpr -d lpr_v2"]
       interval: 3s
       timeout: 3s
       retries: 30
     networks:
-      - alpr-network
+      - lpr-network
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 4gb --maxmemory-policy allkeys-lru
     environment:
       TZ: Asia/Bangkok
     ports:
@@ -34,25 +36,20 @@ services:
       timeout: 3s
       retries: 30
     networks:
-      - alpr-network
+      - lpr-network
 
   # ==================== Backend API ====================
   backend:
     build:
       context: ./backend
-    user: "1000:1000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
-      interval: 3s
-      timeout: 3s
-      retries: 30
+      dockerfile: Dockerfile
     environment:
       TZ: Asia/Bangkok
-      LOG_LEVEL: INFO
-      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      DATABASE_URL: postgresql+asyncpg://lpr:lpr2024@postgres:5432/lpr_v2
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
-      CORS_ORIGINS: http://localhost:5173,http://10.32.70.136,http://10.32.70.136:5173
+      MODELS_DIR: /models
+      CORS_ORIGINS: http://localhost:3000,http://10.32.70.136,http://10.32.70.136:3000
     volumes:
       - ./storage:/storage
       - ./models:/models
@@ -64,12 +61,14 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - alpr-network
+      - lpr-network
+    restart: unless-stopped
 
-  # ==================== Celery Workers ====================
-  worker-gpu-1:
+  # ==================== AI Worker (TensorRT + ByteTrack) ====================
+  worker-gpu:
     build:
       context: ./worker
+      dockerfile: Dockerfile.gpu
     deploy:
       resources:
         reservations:
@@ -79,67 +78,52 @@ services:
               capabilities: [gpu]
     environment:
       TZ: Asia/Bangkok
-      # TensorRT settings
-      TRT_WORKSPACE: "4096"
-      TRT_FP16: "1"
       CUDA_VISIBLE_DEVICES: "0"
       
       # Database & Redis
-      DATABASE_URL: postgresql+psycopg2://alpr:alpr@postgres:5432/alpr
+      DATABASE_URL: postgresql+asyncpg://lpr:lpr2024@postgres:5432/lpr_v2
       REDIS_URL: redis://redis:6379/0
       STORAGE_DIR: /storage
+      MODELS_DIR: /models
       
-      # Model settings
-      MODEL_PATH: /models/best.pt
-      DETECTOR_CONF: "0.20"
-      TRT_INPUT_W: "640"
-      TRT_INPUT_H: "640"
-      TRT_CONF_THRES: "0.20"
-      TRT_IOU_THRES: "0.45"
-      TRT_CLASS_ID: "0"
+      # TensorRT Settings
+      TRT_WORKSPACE: "6144"
+      TRT_FP16: "1"
       
-      # ALPR settings
-      MASTER_CONF_THRESHOLD: "0.95"
+      # Vehicle Detection Model
+      VEHICLE_MODEL_PATH: /models/vehicles.engine
+      VEHICLE_CONF_THRESHOLD: "0.40"
+      VEHICLE_IOU_THRESHOLD: "0.50"
       
-      # Perspective Fix (post-crop pre-OCR)
-      PERSPECTIVE_FIX_ENABLED: "true"
-      PERSPECTIVE_FIX_MIN_AREA: "500"
-
-      # OCR tuning
-      OCR_PROVINCE_MIN_SCORE: "55.0"
-      OCR_VARIANT_LIMIT: "14"
-      OCR_CONSENSUS_MIN: "0.45"
-      OCR_MARGIN_MIN: "0.12"
-      OCR_DEBUG_CONFIDENCE_THRESHOLD: "0.55"
-
-      # Headlight Deglare
-      DEGLARE_ENABLED: "true"
-      DEGLARE_SATURATION_THRESHOLD: "240"
-      DEGLARE_CLAHE_CLIP: "3.0"
-
-      # Crop Validator (กรอง crop ข้างรถ)
-      CROP_VALIDATOR_ENABLED: "true"
-      CROP_MIN_WIDTH: "40"
-      CROP_MIN_HEIGHT: "15"
-      CROP_MIN_ASPECT_RATIO: "1.5"
-      CROP_MAX_ASPECT_RATIO: "7.0"
-      CROP_MIN_CONTRAST: "20.0"
-      CROP_MIN_EDGE_DENSITY: "0.03"
-
-      # Plate Dedup (กรองทะเบียนซ้ำ)
-      PLATE_DEDUP_ENABLED: "true"
-      PLATE_DEDUP_COOLDOWN_SEC: "60"
-      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
-      PLATE_DEDUP_CAMERA_SCOPE: "true"
+      # Plate Detection Model
+      PLATE_MODEL_PATH: /models/best.engine
+      PLATE_CONF_THRESHOLD: "0.35"
+      PLATE_IOU_THRESHOLD: "0.45"
       
-      # Celery settings
-      CELERY_WORKER_CONCURRENCY: "8"
-      CELERY_WORKER_PREFETCH: "16"
-      CELERY_WORKER_MAX_TASKS_PER_CHILD: "200"
+      # ByteTrack Configuration
+      TRACK_THRESH: "0.45"
+      TRACK_BUFFER: "30"
+      MATCH_THRESH: "0.80"
       
-      # Performance
-      ULTRALYTICS_AUTOINSTALL: "false"
-      YOLO_VERBOSE: "false"
+      # Zone Trigger Configuration
+      ZONE_TRIGGER_ENABLED: "true"
+      ZONE_TRIGGER_ONCE_PER_TRACK: "true"
+      ZONE_MIN_FRAMES_IN_ZONE: "3"
+      
+      # OCR Configuration
+      OCR_LANGUAGE: "th,en"
+      OCR_GPU: "true"
+      OCR_PROVINCE_MATCHING_ENABLED: "true"
+      OCR_PROVINCE_MIN_SCORE: "70.0"
+      
+      # Active Learning
+      ACTIVE_LEARNING_ENABLED: "true"
+      MLPR_EXPORT_DIR: /storage/retrain_easyocr
+      
+      # Worker Settings
+      CELERY_WORKER_CONCURRENCY: "4"
+      CELERY_WORKER_PREFETCH: "8"
+      
     volumes:
       - ./storage:/storage
       - ./models:/models
@@ -149,7 +133,49 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - alpr-network
+      - lpr-network
+    restart: unless-stopped
+
+  # ==================== RTSP Stream Manager ====================
+  stream-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.stream
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu, video]
+    environment:
+      TZ: Asia/Bangkok
+      CUDA_VISIBLE_DEVICES: "0"
+      DATABASE_URL: postgresql+asyncpg://lpr:lpr2024@postgres:5432/lpr_v2
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /storage
+      MODELS_DIR: /models
+      
+      # Stream Settings
+      RTSP_RECONNECT_DELAY: "5"
+      RTSP_BUFFER_SIZE: "2"
+      STREAM_FPS_TARGET: "10"
+      
+      # MJPEG Server for Web Preview
+      MJPEG_SERVER_ENABLED: "true"
+      MJPEG_SERVER_PORT: "8090"
+      MJPEG_QUALITY: "85"
+      
+    volumes:
+      - ./storage:/storage
+      - ./models:/models
+    ports:
+      - "8090:8090"
+    depends_on:
+      - backend
+      - worker-gpu
+    networks:
+      - lpr-network
     restart: unless-stopped
 
   # ==================== Monitoring ====================
@@ -164,40 +190,29 @@ services:
     depends_on:
       - redis
     networks:
-      - alpr-network
-
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    environment:
-      REDIS_HOSTS: local:redis:6379
-    ports:
-      - "8081:8081"
-    depends_on:
-      - redis
-    networks:
-      - alpr-network
+      - lpr-network
 
   # ==================== Frontend ====================
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
     environment:
       TZ: Asia/Bangkok
       VITE_API_BASE: http://10.32.70.136:8000
-      VITE_PROXY_TARGET: http://backend:8000
-    tty: true
-    stdin_open: true
+      VITE_STREAM_BASE: http://10.32.70.136:8090
     ports:
-      - "5173:5173"
+      - "3000:3000"
     depends_on:
       - backend
     networks:
-      - alpr-network
+      - lpr-network
+    restart: unless-stopped
 
 volumes:
   pgdata:
   redisdata:
 
 networks:
-  alpr-network:
+  lpr-network:
     driver: bridge
