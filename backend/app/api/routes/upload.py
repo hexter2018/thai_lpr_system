@@ -19,23 +19,22 @@ def resolve_storage_dir() -> Path:
     preferred = Path(settings.storage_dir)
     try:
         preferred.mkdir(parents=True, exist_ok=True)
-        if os.access(preferred, os.W_OK):
-            return preferred
-        else:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Storage directory is not writable: {preferred}",
-            )
-    except PermissionError:
+        probe_path = preferred / ".write_test"
+        probe_path.write_bytes(b"ok")
+        probe_path.unlink(missing_ok=True)
+        return preferred
+    except HTTPException:
+        raise
+    except PermissionError as exc:
         raise HTTPException(
-            status_code=500, 
+        status_code=500,
             detail=f"Storage directory permission denied: {preferred}",
-        )
-    except Exception as e:
+        ) from exc
+    except OSError as exc:
         raise HTTPException(
-            status_code=500, 
-            detail=f"Storage directory could not be created: {preferred}, error: {str(e)}",
-        )
+            status_code=500,
+            detail=f"Storage directory is not writable: {preferred}",
+        ) from exc
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -43,10 +42,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
-
-@router.post("/upload")
-async def upload_one(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    storage = resolve_storage_dir()
 
 async def _store_file(upload: UploadFile, storage: Path) -> tuple[Path, str]:
     ext = Path(upload.filename or "upload.jpg").suffix.lower() or ".jpg"
