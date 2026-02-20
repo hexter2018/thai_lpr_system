@@ -13,12 +13,12 @@ psycopg2-binary==2.9.9
 # Deep Learning - GPU
 torch==2.1.2+cu121
 torchvision==0.16.2+cu121
---extra-index-url https://download.pytorch.org/whl/cu121
+--extra-index-url https://pypi.nvidia.com
 
 # YOLO/TensorRT
 ultralytics==8.1.0
-tensorrt==8.6.1
-pycuda==2022.2.2
+tensorrt_bindings==8.6.1
+tensorrt_libs==8.6.1
 
 # OCR
 easyocr==1.7.0
