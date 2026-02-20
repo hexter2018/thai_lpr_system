@@ -65,8 +65,11 @@ COPY requirements.gpu.txt .
 ENV CFLAGS="-Wno-error=nonnull -Wno-nonnull"
 ENV CXXFLAGS="-Wno-error=nonnull -Wno-nonnull"
 
-# Install remaining Python dependencies
-RUN python3 -m pip install --no-cache-dir -r requirements.gpu.txt
+# Install remaining Python dependencies.
+# `tensorrt`'s build backend shells out to `/usr/bin/python3 -m pip`; keeping
+# build isolation disabled avoids an ephemeral env where that interpreter may
+# not have pip available.
+RUN python3 -m pip install --no-cache-dir --no-build-isolation -r requirements.gpu.txt
 
 # Copy application code
 COPY . /app/
