@@ -11,7 +11,7 @@ from typing import Dict
 
 from app.stream.rtsp_manager import RTSPManager
 from app.stream.mjpeg_server import MJPEGServer
-from app.db.session import AsyncSessionLocal
+from app.db.session import SessionLocal
 from app.db.models import Camera
 from sqlalchemy import select
 
@@ -31,7 +31,7 @@ class StreamManagerService:
     
     async def load_cameras(self):
         """Load active cameras from database"""
-        async with AsyncSessionLocal() as session:
+        with SessionLocal() as session:
             result = await session.execute(
                 select(Camera).where(Camera.status == 'active')
             )
