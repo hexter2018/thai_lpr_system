@@ -279,6 +279,7 @@ class STrack:
         self.track_id = track_id
         self.hit_streak = 1
         self.age = 1
+        self.time_since_update = 0
     
     @property
     def tlbr(self):
@@ -294,6 +295,7 @@ class BYTETracker:
         self.track_thresh = track_thresh
         self.track_buffer = track_buffer
         self.match_thresh = match_thresh
+        self.iou_match_thresh = float(os.getenv("FALLBACK_TRACK_IOU_THRESH", "0.30"))
         self.frame_rate = frame_rate
         
         self.tracked_stracks = []
@@ -306,28 +308,94 @@ class BYTETracker:
     def update(self, dets):
         """Update tracks with new detections"""
         self.frame_id += 1
-        
+
+        # age tracks by default; matched tracks will be reset later
+        for track in self.tracked_stracks:
+            track.age += 1
+            track.time_since_update += 1
+
         if len(dets) == 0:
-            # No detections, age existing tracks
-            for track in self.tracked_stracks:
-                track.age += 1
+            self._prune_stale_tracks()
             return []
-        
-        # Simple assignment: create new tracks for all detections
-        # (In production, use IoU matching with Hungarian algorithm)
-        activated_tracks = []
-        
-        for det in dets:
-            x1, y1, x2, y2, score = det
-            if score < self.track_thresh:
-                continue
-            
-            tlwh = [x1, y1, x2 - x1, y2 - y1]
-            
-            # Create new track
+
+        # Greedy IoU matching for fallback mode. This keeps track IDs stable
+        # across frames so zone-trigger logic can accumulate frames_in_zone.
+        dets = [det for det in dets if det[4] >= self.track_thresh]
+        if len(dets) == 0:
+            self._prune_stale_tracks()
+            return []
+
+        unmatched_tracks = set(range(len(self.tracked_stracks)))
+        unmatched_dets = set(range(len(dets)))
+        matches = []
+
+        while unmatched_tracks and unmatched_dets:
+            best_pair = None
+            best_iou = 0.0
+            for t_idx in unmatched_tracks:
+                t_tlbr = self.tracked_stracks[t_idx].tlbr
+                for d_idx in unmatched_dets:
+                    d_tlbr = dets[d_idx][:4]
+                    iou = self._iou(t_tlbr, d_tlbr)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_pair = (t_idx, d_idx)
+
+            if best_pair is None or best_iou < self.iou_match_thresh:
+                break
+
+            t_idx, d_idx = best_pair
+            matches.append((t_idx, d_idx))
+            unmatched_tracks.discard(t_idx)
+            unmatched_dets.discard(d_idx)
+
+        active_tracks = []
+
+        # Update matched tracks
+        for t_idx, d_idx in matches:
+            track = self.tracked_stracks[t_idx]
+            x1, y1, x2, y2, score = dets[d_idx]
+            track.tlwh = np.array([x1, y1, x2 - x1, y2 - y1], dtype=np.float32)
+            track.score = float(score)
+            track.hit_streak += 1
+            track.time_since_update = 0
+            active_tracks.append(track)
+
+        # Create tracks for unmatched detections
+        for d_idx in unmatched_dets:
+            x1, y1, x2, y2, score = dets[d_idx]
             self.track_id_count += 1
-            track = STrack(tlwh, score, self.track_id_count)
-            activated_tracks.append(track)
-        
-        self.tracked_stracks = activated_tracks
-        return self.tracked_stracks
+            track = STrack([x1, y1, x2 - x1, y2 - y1], float(score), self.track_id_count)
+            active_tracks.append(track)
+
+        # Keep unmatched old tracks alive until buffer timeout (not active this frame)
+        survivors = [
+            self.tracked_stracks[t_idx]
+            for t_idx in unmatched_tracks
+            if self.tracked_stracks[t_idx].time_since_update <= self.track_buffer
+        ]
+        self.tracked_stracks = active_tracks + survivors
+        self._prune_stale_tracks()
+        return active_tracks
+
+    def _prune_stale_tracks(self):
+        self.tracked_stracks = [
+            t for t in self.tracked_stracks if t.time_since_update <= self.track_buffer
+        ]
+
+    @staticmethod
+    def _iou(a, b):
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter = inter_w * inter_h
+        if inter <= 0:
+            return 0.0
+        area_a = max(1.0, (ax2 - ax1) * (ay2 - ay1))
+        area_b = max(1.0, (bx2 - bx1) * (by2 - by1))
+        return float(inter / (area_a + area_b - inter))
