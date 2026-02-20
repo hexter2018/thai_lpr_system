@@ -1,4 +1,8 @@
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# NOTE:
+# pycuda/tensorrt Python wheels compile native CUDA extensions during install.
+# The runtime image does not include CUDA headers (cuda.h), which causes
+# build failures. Use the matching *devel* variant to provide nvcc/headers.
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -8,8 +12,8 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.11 \
-    python3.11-dev \
+    python3 \
+    python3-dev \
     python3-pip \
     build-essential \
     cmake \
@@ -25,28 +29,40 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip
-RUN python3.11 -m pip install --upgrade pip setuptools wheel
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
+# The tensorrt sdist invokes `/usr/bin/python3 -m pip` during wheel build.
+# In some CUDA base images that interpreter does not have pip bootstrapped,
+# so ensure both python entrypoints can execute `-m pip` before requirements.
+RUN /usr/bin/python3 -m pip --version || (wget -qO- https://bootstrap.pypa.io/get-pip.py | /usr/bin/python3)
 
 # Install build dependencies first
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     Cython==0.29.36 \
     numpy==1.24.3 \
     setuptools wheel
 
 # Install tracking packages that need Cython (install separately to avoid issues)
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     filterpy==1.4.5 \
     scikit-image==0.22.0
 
-RUN pip install --no-cache-dir --no-build-isolation cython-bbox==0.1.3
+RUN python3 -m pip install --no-cache-dir --no-build-isolation cython-bbox==0.1.3
 
-RUN pip install --no-cache-dir --no-build-isolation lap==0.4.0
+# Use the modernized fork of lap
+RUN python3 -m pip install --no-cache-dir lapx
 
 # Copy requirements
 COPY requirements.gpu.txt .
 
+# pycuda (via boost-python) can hit GCC nonnull warnings that are treated as
+# build failures on newer toolchains. Relax that specific diagnostic so the
+# extension can compile during image builds.
+ENV CFLAGS="-Wno-error=nonnull -Wno-nonnull"
+ENV CXXFLAGS="-Wno-error=nonnull -Wno-nonnull"
+
 # Install remaining Python dependencies
-RUN pip install --no-cache-dir -r requirements.gpu.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.gpu.txt
 
 # Copy application code
 COPY . /app/
@@ -64,11 +80,8 @@ ENV CUDA_VISIBLE_DEVICES=0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python3.11 -c "import torch; assert torch.cuda.is_available()" || exit 1
+    CMD python3 -c "import torch; assert torch.cuda.is_available()" || exit 1
 
 # Run Celery worker
-CMD ["celery", "-A", "worker.celery_app", "worker", \
-     "--loglevel=info", \
-     "--concurrency=2", \
-     "--pool=threads", \
-     "-Q", "lpr,tracking,training"]
+RUN chmod +x /app/start.sh
+CMD ["/app/start.sh"]
