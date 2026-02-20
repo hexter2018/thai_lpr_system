@@ -79,7 +79,18 @@ log = logging.getLogger(__name__)
 # ----------------------------
 # Env
 # ----------------------------
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/lpr_v2")
+# ✅ Fixed: Match docker-compose.yml database configuration
+# Convert async URL to sync for Celery worker (psycopg2)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", 
+    "postgresql+psycopg2://lpr:lpr2024@postgres:5432/lpr_v2"
+)
+
+# If DATABASE_URL uses asyncpg (from docker-compose), convert to psycopg2
+if "postgresql+asyncpg://" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+    log.info("Converted DATABASE_URL from asyncpg to psycopg2 for sync worker")
+
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./storage"))
 MASTER_CONF_THRESHOLD = float(os.getenv("MASTER_CONF_THRESHOLD", "0.95"))
 
@@ -92,7 +103,15 @@ STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 # ----------------------------
 # DB
 # ----------------------------
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# ✅ Added: Connection pool settings for production
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,  # Maximum number of connections to keep open
+    max_overflow=10,  # Maximum overflow connections
+    pool_recycle=3600,  # Recycle connections after 1 hour
+    echo=False,  # Set to True for SQL debugging
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
