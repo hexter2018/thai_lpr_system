@@ -34,10 +34,10 @@ class StreamManagerService:
         try:
             async with AsyncSessionLocal() as session:
                 # Import here to avoid circular imports
-                from app.db.models import Camera
+                from app.db.models import Camera, CameraStatus
                 
                 result = await session.execute(
-                    select(Camera).where(Camera.status == 'active')
+                    select(Camera).where(Camera.status == CameraStatus.ACTIVE)
                 )
                 cameras = result.scalars().all()
                 

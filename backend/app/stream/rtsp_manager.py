@@ -218,6 +218,7 @@ class RTSPStreamManager:
         result = cv2.pointPolygonTest(polygon, (float(x), float(y)), False)
         return result >= 0
     
+
     def draw_zone_overlay(
         self,
         frame: np.ndarray,
@@ -296,3 +297,6 @@ class RTSPStreamManager:
             log.info("MJPEG server started on port %d", self.mjpeg_port)
         
         asyncio.create_task(start_server())
+        
+# Backward-compatible export name used by stream package imports.
+RTSPManager = RTSPStreamManager

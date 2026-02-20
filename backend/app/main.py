@@ -10,7 +10,8 @@ from typing import List, Optional
 from app.db.session import get_db
 from app.db.models import (
     Camera, VehicleTrack, Capture, Detection, PlateRead,
-    VerificationJob, MasterPlate, MLPRSample, CameraStats, SystemMetrics
+    VerificationJob, MasterPlate, MLPRSample, CameraStats, SystemMetrics,
+    CameraStatus, ReadStatus, VerifyResultType,
 )
 
 app = FastAPI(title="Thai LPR V2 API", version="2.0.0")
@@ -328,7 +329,7 @@ def get_dashboard_analytics(db: Session = Depends(get_db)):
     # Total cameras
     total_cameras = db.query(func.count(Camera.camera_id)).scalar()
     active_cameras = db.query(func.count(Camera.camera_id)).filter(
-        Camera.status == "active"
+        Camera.status == CameraStatus.ACTIVE
     ).scalar()
     
     # Vehicles today
@@ -344,7 +345,7 @@ def get_dashboard_analytics(db: Session = Depends(get_db)):
     total_lpr_success_today = db.query(func.count(PlateRead.id)).filter(
         and_(
             PlateRead.created_at >= today_start,
-            PlateRead.status == "VERIFIED"
+            PlateRead.status == ReadStatus.VERIFIED
         )
     ).scalar() or 0
     
@@ -357,14 +358,14 @@ def get_dashboard_analytics(db: Session = Depends(get_db)):
     alpr_count_today = db.query(func.count(VerificationJob.id)).filter(
         and_(
             VerificationJob.verified_at >= today_start,
-            VerificationJob.result_type == "ALPR"
+            VerificationJob.result_type == VerifyResultType.ALPR
         )
     ).scalar() or 0
     
     mlpr_count_today = db.query(func.count(VerificationJob.id)).filter(
         and_(
             VerificationJob.verified_at >= today_start,
-            VerificationJob.result_type == "MLPR"
+            VerificationJob.result_type == VerifyResultType.MLPR
         )
     ).scalar() or 0
     
