@@ -28,7 +28,7 @@ lapx  # modern fork of lap
 # Uncomment ถ้าต้องการรัน vehicle detection บน stream-manager container
 --extra-index-url https://pypi.nvidia.com
 tensorrt_bindings==8.6.1
-ensorrt_libs==8.6.1
+tensorrt_libs==8.6.1
 
 # Utilities
 python-dotenv==1.0.0
