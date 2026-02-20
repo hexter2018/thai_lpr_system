@@ -79,8 +79,8 @@ class ByteTrackEngine:
         
         # Import ByteTrack implementation
         try:
-            from .bytetrack_impl import BYTETracker, STrack
-            self.tracker = BYTETracker(
+            from .bytetrack_impl import BYTETracker as ImplBYTETracker
+            self.tracker = ImplBYTETracker(
                 track_thresh=track_thresh,
                 track_buffer=track_buffer,
                 match_thresh=match_thresh,
@@ -88,8 +88,17 @@ class ByteTrackEngine:
             )
             log.info("ByteTrack initialized (thresh=%.2f, buffer=%d)", track_thresh, track_buffer)
         except ImportError:
-            log.error("ByteTrack implementation not found. Install ByteTrack package.")
-            raise
+            # Fallback to lightweight local implementation to keep tracking
+            # pipeline usable even when optional ByteTrack package is absent.
+            self.tracker = BYTETracker(
+                track_thresh=track_thresh,
+                track_buffer=track_buffer,
+                match_thresh=match_thresh,
+                frame_rate=30
+            )
+            log.warning(
+                "ByteTrack package not found; using simplified built-in tracker fallback"
+            )
         
         # Track states (camera_id -> track_id -> TrackState)
         self.track_states: Dict[str, Dict[int, TrackState]] = defaultdict(dict)
