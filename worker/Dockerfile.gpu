@@ -90,5 +90,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python3 -c "import torch; assert torch.cuda.is_available()" || exit 1
 
 # Run Celery worker
+COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 CMD ["/app/start.sh"]
