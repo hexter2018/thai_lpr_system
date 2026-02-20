@@ -7,7 +7,7 @@ import asyncio
 import logging
 import signal
 import sys
-from typing import Dict
+from typing import Dict, List
 
 from app.stream.rtsp_manager import RTSPManager
 from app.stream.mjpeg_server import MJPEGServer
@@ -25,8 +25,8 @@ class StreamManagerService:
     """Manages all camera streams and MJPEG server"""
     
     def __init__(self):
-        self.rtsp_managers: Dict[str, RTSPManager] = {}
-        self.mjpeg_server: MJPEGServer = None
+        self.rtsp_manager: RTSPManager | None = None
+        self.active_camera_ids: set[str] = set()
         self.running = False
     
     async def load_cameras(self):
@@ -46,26 +46,26 @@ class StreamManagerService:
             log.error(f"Error loading cameras: {e}")
             return []
     
-    async def start_camera_stream(self, camera):
-        """Start RTSP capture for a camera"""
-        try:
-            manager = RTSPManager(
-                camera_id=camera.camera_id,
-                rtsp_url=camera.rtsp_url,
-                fps_target=camera.fps_target,
-                codec=camera.codec,
-                zone_polygon=camera.zone_polygon if camera.zone_enabled else None
-            )
-            
-            # Start capture in background
-            asyncio.create_task(manager.start_capture())
-            
-            self.rtsp_managers[camera.camera_id] = manager
-            
-            log.info(f"Started stream for camera: {camera.camera_id}")
-            
-        except Exception as e:
-            log.error(f"Failed to start stream for {camera.camera_id}: {e}")
+    async def start_streams(self, cameras: List):
+        """Start all RTSP streams using the unified stream manager."""
+        camera_configs: Dict[str, object] = {
+            camera.camera_id: camera for camera in cameras if camera.enabled
+        }
+
+        self.rtsp_manager = RTSPManager(
+            camera_configs=camera_configs,
+            redis_client=None,
+            db_session_factory=AsyncSessionLocal,
+        )
+        self.rtsp_manager.start()
+        self.active_camera_ids = set(camera_configs.keys())
+        log.info("Started streams for cameras: %s", sorted(self.active_camera_ids))
+
+    async def restart_streams(self, cameras: List):
+        """Restart stream manager after camera configuration changes."""
+        if self.rtsp_manager:
+            self.rtsp_manager.stop()
+        await self.start_streams(cameras)
     
     async def start(self):
         """Start stream manager service"""
@@ -78,8 +78,7 @@ class StreamManagerService:
         log.info(f"Loaded {len(cameras)} active cameras")
         
         # Start MJPEG server
-        self.mjpeg_server = MJPEGServer(port=8090)
-        asyncio.create_task(self.mjpeg_server.start())
+        await self.start_streams(cameras)
         
         # Start camera streams
         for camera in cameras:
@@ -91,20 +90,15 @@ class StreamManagerService:
             
             # Reload cameras (handle added/removed)
             cameras = await self.load_cameras()
-            active_ids = {c.camera_id for c in cameras}
-            
-            # Stop removed cameras
-            for camera_id in list(self.rtsp_managers.keys()):
-                if camera_id not in active_ids:
-                    log.info(f"Stopping removed camera: {camera_id}")
-                    await self.rtsp_managers[camera_id].stop()
-                    del self.rtsp_managers[camera_id]
-            
-            # Start new cameras
-            for camera in cameras:
-                if camera.camera_id not in self.rtsp_managers:
-                    log.info(f"Starting new camera: {camera.camera_id}")
-                    await self.start_camera_stream(camera)
+            next_ids = {c.camera_id for c in cameras if c.enabled}
+
+            if next_ids != self.active_camera_ids:
+                log.info(
+                    "Camera set changed from %s to %s, restarting streams",
+                    sorted(self.active_camera_ids),
+                    sorted(next_ids),
+                )
+                await self.restart_streams(cameras)
     
     async def stop(self):
         """Stop stream manager service"""
@@ -112,13 +106,10 @@ class StreamManagerService:
         
         self.running = False
         
-        # Stop all camera streams
-        for manager in self.rtsp_managers.values():
-            await manager.stop()
-        
-        # Stop MJPEG server
-        if self.mjpeg_server:
-            await self.mjpeg_server.stop()
+        if self.rtsp_manager:
+            self.rtsp_manager.stop()
+            self.rtsp_manager = None
+            self.active_camera_ids.clear()
         
         # Close database engine
         await async_engine.dispose()
