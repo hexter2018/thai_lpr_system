@@ -32,11 +32,15 @@ try:
 except ImportError:
     # Fallback สำหรับ local development
     import sys
-    from pathlib import Path
-    worker_path = Path(__file__).parent.parent.parent.parent / "worker"
-    sys.path.insert(0, str(worker_path))
-    from tracking.bytetrack_engine import LPRTrackingEngine, Detection
-    from alpr_worker.tasks import process_lpr_task
+
+    candidate_worker_paths = [
+        Path(__file__).resolve().parents[3] / "worker",
+        Path(__file__).resolve().parents[2] / "worker",
+        Path.cwd() / "worker",
+    ]
+    for worker_path in candidate_worker_paths:
+        if worker_path.exists() and str(worker_path) not in sys.path:
+            sys.path.insert(0, str(worker_path))
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +52,7 @@ USE_TRT_VEHICLE_DETECTOR = os.getenv("USE_TRT_VEHICLE_DETECTOR", "true").lower()
 
 if USE_TRT_VEHICLE_DETECTOR:
     try:
-        from alpr_worker.inference.trt.yolov8_trt_detector import YOLOv8TRTPlateDetector
+        from worker.alpr_worker.inference.trt.yolov8_trt_detector import YOLOv8TRTPlateDetector
         
         class VehicleDetector:
             """TensorRT vehicle detector wrapper (uses models/vehicles.engine)"""

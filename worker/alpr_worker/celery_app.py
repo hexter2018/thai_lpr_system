@@ -10,7 +10,7 @@ celery_app = Celery(
 )
 
 # ✅ แก้ไขส่วนนี้ - ระบุ module ที่มี tasks ชัดเจน
-celery_app.autodiscover_tasks(["alpr_worker"], force=True)
+celery_app.autodiscover_tasks(["worker.alpr_worker"], force=True)
 
 # ✅ เพิ่ม config เพิ่มเติมสำหรับ production
 celery_app.conf.update(
