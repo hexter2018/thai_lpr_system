@@ -15,18 +15,18 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY requirements.txt .
+COPY backend/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY app/ ./app/
+COPY backend/app/ ./app/
 
 # ===== เพิ่มส่วนนี้ - Copy worker code for tracking engine =====
 RUN mkdir -p /app/worker
-COPY ../worker/tracking /app/worker/tracking
-COPY ../worker/alpr_worker /app/worker/alpr_worker
+COPY worker/worker/tracking /app/worker/tracking
+COPY worker/worker/alpr_worker /app/worker/alpr_worker
 
 # Create storage directories
 RUN mkdir -p /storage/captures /storage/crops /storage/retrain_easyocr \
