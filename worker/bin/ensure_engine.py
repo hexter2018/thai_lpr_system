@@ -2,6 +2,7 @@
 import os
 import re
 import subprocess
+from shutil import which
 from pathlib import Path
 
 def sh(cmd: list[str]) -> str:
@@ -74,8 +75,31 @@ def build_engine(
     workspace_mode: str,
 ) -> None:
     engine_path.parent.mkdir(parents=True, exist_ok=True)
+    trtexec_bin = os.getenv("TRTEXEC_PATH")
+    if trtexec_bin:
+        trtexec = Path(trtexec_bin)
+        if not trtexec.exists():
+            raise RuntimeError(f"TRTEXEC_PATH points to missing file: {trtexec}")
+    else:
+        detected = which("trtexec")
+        if detected:
+            trtexec = Path(detected)
+        else:
+            # Common TensorRT container install locations.
+            candidates = [
+                Path("/usr/src/tensorrt/bin/trtexec"),
+                Path("/usr/local/tensorrt/bin/trtexec"),
+                Path("/opt/tensorrt/bin/trtexec"),
+            ]
+            trtexec = next((p for p in candidates if p.exists()), None)
+            if trtexec is None:
+                raise RuntimeError(
+                    "TensorRT engine build requires 'trtexec', but it was not found in PATH. "
+                    "Set TRTEXEC_PATH to the binary location or install TensorRT CLI tools."
+                )
+
     cmd = [
-        "trtexec",
+        str(trtexec),
         f"--onnx={onnx_path}",
         f"--saveEngine={engine_path}",
     ]
