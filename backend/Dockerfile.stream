@@ -25,8 +25,8 @@ COPY backend/app/ ./app/
 
 # ===== เพิ่มส่วนนี้ - Copy worker code for tracking engine =====
 RUN mkdir -p /app/worker
-COPY worker/worker/tracking /app/worker/tracking
-COPY worker/worker/alpr_worker /app/worker/alpr_worker
+COPY worker/tracking /app/worker/tracking
+COPY worker/alpr_worker /app/worker/alpr_worker
 
 # Create storage directories
 RUN mkdir -p /storage/captures /storage/crops /storage/retrain_easyocr \
