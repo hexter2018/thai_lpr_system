@@ -11,8 +11,7 @@ from typing import Dict
 
 from app.stream.rtsp_manager import RTSPManager
 from app.stream.mjpeg_server import MJPEGServer
-from app.db.session import SessionLocal
-from app.db.models import Camera
+from app.db.session import AsyncSessionLocal, async_engine
 from sqlalchemy import select
 
 logging.basicConfig(
@@ -20,6 +19,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 log = logging.getLogger(__name__)
+
 
 class StreamManagerService:
     """Manages all camera streams and MJPEG server"""
@@ -31,13 +31,20 @@ class StreamManagerService:
     
     async def load_cameras(self):
         """Load active cameras from database"""
-        with SessionLocal() as session:
-            result = await session.execute(
-                select(Camera).where(Camera.status == 'active')
-            )
-            cameras = result.scalars().all()
-        
-        return cameras
+        try:
+            async with AsyncSessionLocal() as session:
+                # Import here to avoid circular imports
+                from app.db.models import Camera
+                
+                result = await session.execute(
+                    select(Camera).where(Camera.status == 'active')
+                )
+                cameras = result.scalars().all()
+                
+                return cameras
+        except Exception as e:
+            log.error(f"Error loading cameras: {e}")
+            return []
     
     async def start_camera_stream(self, camera):
         """Start RTSP capture for a camera"""
@@ -51,7 +58,7 @@ class StreamManagerService:
             )
             
             # Start capture in background
-            manager._capture_task = asyncio.create_task(manager.start_capture())
+            asyncio.create_task(manager.start_capture())
             
             self.rtsp_managers[camera.camera_id] = manager
             
@@ -112,6 +119,9 @@ class StreamManagerService:
         # Stop MJPEG server
         if self.mjpeg_server:
             await self.mjpeg_server.stop()
+        
+        # Close database engine
+        await async_engine.dispose()
         
         log.info("Stream Manager Service stopped")
 
