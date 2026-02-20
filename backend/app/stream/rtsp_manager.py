@@ -15,8 +15,12 @@ import numpy as np
 from datetime import datetime
 import threading
 import queue
+from collections import defaultdict
 
-from ..db.models import Camera, VehicleTrack, CameraStatus
+from sqlalchemy import and_, select
+
+from ..db.models import Camera, VehicleTrack, CameraStats, CameraStatus, VehicleType
+from ..db.session import SessionLocal
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +41,19 @@ class StreamFrame:
     image: np.ndarray
     camera_id: str
 
+@dataclass
+class LocalTrack:
+    """In-memory track state for lightweight tracking fallback."""
+    track_id: int
+    bbox: Tuple[int, int, int, int]
+    first_seen: datetime
+    last_seen: datetime
+    entered_zone: bool = False
+    entered_zone_at: Optional[datetime] = None
+    lpr_triggered: bool = False
+    lpr_triggered_at: Optional[datetime] = None
+    frames_in_zone: int = 0
+    missing_frames: int = 0
 
 class RTSPStreamManager:
     """
@@ -64,6 +81,10 @@ class RTSPStreamManager:
         self.stream_threads: Dict[str, threading.Thread] = {}
         self.frame_queues: Dict[str, queue.Queue] = {}
         self.stop_events: Dict[str, threading.Event] = {}
+        self.track_states: Dict[str, Dict[int, LocalTrack]] = defaultdict(dict)
+        self.next_track_id: Dict[str, int] = defaultdict(int)
+        self.detectors: Dict[str, cv2.BackgroundSubtractor] = {}
+        self.last_stats_flush: Dict[str, datetime] = {}
         
         # Zone configs
         self.zones: Dict[str, ZoneConfig] = {}
@@ -103,6 +124,13 @@ class RTSPStreamManager:
                 enabled=True,
                 min_frames_in_zone=int(os.getenv("ZONE_MIN_FRAMES_IN_ZONE", "3"))
             )
+
+        
+        self.detectors[camera_id] = cv2.createBackgroundSubtractorMOG2(
+            history=300,
+            varThreshold=32,
+            detectShadows=True,
+        )
         
         # Initialize capture
         rtsp_url = camera.rtsp_url
@@ -185,6 +213,11 @@ class RTSPStreamManager:
             except queue.Full:
                 pass  # Drop frame if queue full
             
+            try:
+                self._process_tracking(camera_id, frame, stream_frame.timestamp)
+            except Exception as e:
+                log.exception("Tracking pipeline failed for %s: %s", camera_id, e)
+
             frame_id += 1
             
             # FPS throttle
@@ -204,6 +237,186 @@ class RTSPStreamManager:
             return frame
         except queue.Empty:
             return None
+    
+    
+    def _process_tracking(self, camera_id: str, frame: np.ndarray, ts: datetime):
+        """Lightweight vehicle detection+tracking+zone trigger pipeline."""
+        detector = self.detectors.get(camera_id)
+        if detector is None:
+            return
+
+        fg = detector.apply(frame)
+        fg = cv2.GaussianBlur(fg, (5, 5), 0)
+        _, fg = cv2.threshold(fg, 200, 255, cv2.THRESH_BINARY)
+        kernel = np.ones((5, 5), np.uint8)
+        fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, kernel, iterations=1)
+        fg = cv2.morphologyEx(fg, cv2.MORPH_DILATE, kernel, iterations=2)
+
+        contours, _ = cv2.findContours(fg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        detections: List[Tuple[int, int, int, int]] = []
+
+        min_area = int(os.getenv("TRACK_MIN_BLOB_AREA", "2500"))
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
+            x, y, w, h = cv2.boundingRect(contour)
+            if w < 40 or h < 30:
+                continue
+            detections.append((x, y, x + w, y + h))
+
+        self._update_tracks(camera_id, detections, ts)
+        self._flush_stats_if_needed(camera_id, ts)
+
+    def _update_tracks(self, camera_id: str, detections: List[Tuple[int, int, int, int]], ts: datetime):
+        tracks = self.track_states[camera_id]
+        unmatched_track_ids = set(tracks.keys())
+
+        # Greedy IoU matching
+        for det in detections:
+            best_track_id = None
+            best_iou = 0.0
+            for track_id in list(unmatched_track_ids):
+                iou = self._iou(det, tracks[track_id].bbox)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_track_id = track_id
+
+            if best_track_id is not None and best_iou >= float(os.getenv("TRACK_IOU_THRESH", "0.20")):
+                track = tracks[best_track_id]
+                track.bbox = det
+                track.last_seen = ts
+                track.missing_frames = 0
+                unmatched_track_ids.discard(best_track_id)
+            else:
+                self.next_track_id[camera_id] += 1
+                tid = self.next_track_id[camera_id]
+                tracks[tid] = LocalTrack(track_id=tid, bbox=det, first_seen=ts, last_seen=ts)
+
+        # age unmatched tracks and evict stale ones
+        max_missing = int(os.getenv("TRACK_MAX_MISSING_FRAMES", "15"))
+        for track_id in list(unmatched_track_ids):
+            tracks[track_id].missing_frames += 1
+            if tracks[track_id].missing_frames > max_missing:
+                del tracks[track_id]
+
+        # zone-trigger + db upsert for active tracks only
+        self._upsert_active_tracks(camera_id, ts)
+
+    def _upsert_active_tracks(self, camera_id: str, ts: datetime):
+        tracks = self.track_states[camera_id]
+        zone = self.zones.get(camera_id)
+        min_frames_in_zone = zone.min_frames_in_zone if zone else 3
+
+        db = SessionLocal()
+        try:
+            for state in tracks.values():
+                if state.missing_frames > 0:
+                    continue
+
+                if zone and not state.lpr_triggered:
+                    cx = (state.bbox[0] + state.bbox[2]) // 2
+                    cy = (state.bbox[1] + state.bbox[3]) // 2
+                    in_zone = self.is_point_in_zone((cx, cy), zone)
+                    if in_zone:
+                        state.frames_in_zone += 1
+                        if not state.entered_zone:
+                            state.entered_zone = True
+                            state.entered_zone_at = ts
+                        if state.frames_in_zone >= min_frames_in_zone:
+                            state.lpr_triggered = True
+                            state.lpr_triggered_at = ts
+                    else:
+                        state.frames_in_zone = 0
+
+                db_track = db.execute(
+                    select(VehicleTrack).where(
+                        and_(
+                            VehicleTrack.camera_id == camera_id,
+                            VehicleTrack.track_id == state.track_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                bbox_json = {
+                    "x1": int(state.bbox[0]),
+                    "y1": int(state.bbox[1]),
+                    "x2": int(state.bbox[2]),
+                    "y2": int(state.bbox[3]),
+                }
+
+                if db_track is None:
+                    db_track = VehicleTrack(
+                        camera_id=camera_id,
+                        track_id=state.track_id,
+                        vehicle_type=VehicleType.UNKNOWN,
+                        entered_zone=state.entered_zone,
+                        entered_zone_at=state.entered_zone_at,
+                        lpr_triggered=state.lpr_triggered,
+                        lpr_triggered_at=state.lpr_triggered_at,
+                        bbox=bbox_json,
+                        first_seen=state.first_seen,
+                        last_seen=state.last_seen,
+                    )
+                    db.add(db_track)
+                else:
+                    db_track.last_seen = state.last_seen
+                    db_track.entered_zone = state.entered_zone
+                    db_track.entered_zone_at = state.entered_zone_at
+                    db_track.lpr_triggered = state.lpr_triggered
+                    db_track.lpr_triggered_at = state.lpr_triggered_at
+                    db_track.bbox = bbox_json
+
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def _flush_stats_if_needed(self, camera_id: str, ts: datetime):
+        prev = self.last_stats_flush.get(camera_id)
+        if prev and (ts - prev).total_seconds() < 2:
+            return
+
+        active_states = [s for s in self.track_states[camera_id].values() if s.missing_frames == 0]
+        stats = CameraStats(
+            camera_id=camera_id,
+            fps_actual=float(len(active_states)),
+            vehicle_count=len(active_states),
+            lpr_success_count=sum(1 for s in active_states if s.lpr_triggered),
+            lpr_fail_count=0,
+            success_rate=(
+                float(sum(1 for s in active_states if s.lpr_triggered) * 100 / len(active_states))
+                if active_states else 0.0
+            ),
+            window_start=ts,
+            window_end=ts,
+        )
+
+        db = SessionLocal()
+        try:
+            db.add(stats)
+            db.commit()
+            self.last_stats_flush[camera_id] = ts
+        finally:
+            db.close()
+
+    def _iou(self, a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        inter_w = max(0, inter_x2 - inter_x1)
+        inter_h = max(0, inter_y2 - inter_y1)
+        inter = inter_w * inter_h
+        if inter <= 0:
+            return 0.0
+        area_a = max(1, (ax2 - ax1) * (ay2 - ay1))
+        area_b = max(1, (bx2 - bx1) * (by2 - by1))
+        return inter / float(area_a + area_b - inter)
     
     def is_point_in_zone(
         self,
