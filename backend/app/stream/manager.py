@@ -34,10 +34,10 @@ class StreamManagerService:
         try:
             async with AsyncSessionLocal() as session:
                 # Import here to avoid circular imports
-                from app.db.models import Camera, CameraStatus
+                from app.db.models import Camera
                 
                 result = await session.execute(
-                    select(Camera).where(Camera.status == CameraStatus.ACTIVE)
+                    select(Camera).where(Camera.enabled.is_(True))
                 )
                 cameras = result.scalars().all()
                 
@@ -87,7 +87,7 @@ class StreamManagerService:
         
         # Monitor and reload cameras periodically
         while self.running:
-            await asyncio.sleep(60)  # Check every minute
+            await asyncio.sleep(5)  # Check every minute
             
             # Reload cameras (handle added/removed)
             cameras = await self.load_cameras()

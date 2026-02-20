@@ -4,10 +4,16 @@ import axios from 'axios';
 import { Radio, AlertCircle, RefreshCw } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const buildDefaultMjpegBase = () => {
+  if (typeof window === 'undefined') return '';
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:8090`;
+};
+
 const MJPEG_BASE = (
   import.meta.env.VITE_MJPEG_BASE ||
   import.meta.env.VITE_STREAM_BASE ||
-  ''
+  buildDefaultMjpegBase()
 ).replace(/\/$/, '');
 
 const LiveMonitoring = () => {

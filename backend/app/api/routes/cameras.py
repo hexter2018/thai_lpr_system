@@ -19,12 +19,14 @@ def upsert_camera(payload: CameraUpsertIn, db: Session = Depends(get_db)):
         camera.name = payload.name
         camera.rtsp_url = payload.rtsp_url
         camera.enabled = payload.enabled
+        camera.status = models.CameraStatus.ACTIVE if payload.enabled else models.CameraStatus.INACTIVE
     else:
         camera = models.Camera(
             camera_id=payload.camera_id,
             name=payload.name,
             rtsp_url=payload.rtsp_url,
             enabled=payload.enabled,
+            status=models.CameraStatus.ACTIVE if payload.enabled else models.CameraStatus.INACTIVE,
         )
         db.add(camera)
     db.commit()
