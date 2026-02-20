@@ -1,24 +1,38 @@
 # worker/alpr_worker/tasks.py
 import os
 import json
+import base64
 import hashlib
-import shutil
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from sqlalchemy import text, create_engine
 from sqlalchemy.orm import sessionmaker
-from datetime import timezone
 import cv2
+import numpy as np
 import re
-import logging
 
 from .celery_app import celery_app
-from .inference.detector import PlateDetector
 from .inference.ocr import PlateOCR
 from .inference.master_lookup import assist_with_master
 
-# --- Crop Validator (กรอง crop ข้างรถ / เล็กเกิน / aspect ผิด) ---
+# --- TensorRT Detector Import ---
+USE_TRT_DETECTOR = os.getenv("USE_TRT_DETECTOR", "false").lower() == "true"
+
+if USE_TRT_DETECTOR:
+    try:
+        from .inference.trt.yolov8_trt_detector import YOLOv8TRTPlateDetector as PlateDetector
+        log = logging.getLogger(__name__)
+        log.info("Using TensorRT detector for plate detection")
+    except ImportError as e:
+        from .inference.detector import PlateDetector
+        log = logging.getLogger(__name__)
+        log.warning("TensorRT detector not available, falling back to Ultralytics: %s", e)
+else:
+    from .inference.detector import PlateDetector
+
+# --- Crop Validator ---
 try:
     from .inference.crop_validator import CropValidator
     _crop_validator: Optional[CropValidator] = None
@@ -37,7 +51,7 @@ def get_crop_validator() -> Optional["CropValidator"]:
     return _crop_validator
 
 
-# --- Plate Dedup (กรองทะเบียนซ้ำภายใน cooldown period) ---
+# --- Plate Dedup ---
 try:
     from .inference.plate_dedup import PlateDedup
     _plate_dedup: Optional[PlateDedup] = None
@@ -65,17 +79,14 @@ log = logging.getLogger(__name__)
 # ----------------------------
 # Env
 # ----------------------------
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/alpr")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://alpr:alpr@postgres:5432/lpr_v2")
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./storage"))
 MASTER_CONF_THRESHOLD = float(os.getenv("MASTER_CONF_THRESHOLD", "0.95"))
-FEEDBACK_EXPORT_LIMIT = int(os.getenv("FEEDBACK_EXPORT_LIMIT", "200"))
-TRAINING_DIR = Path(os.getenv("TRAINING_DIR", str(STORAGE_DIR / "training")))
 
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "original").mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "crops").mkdir(parents=True, exist_ok=True)
 (STORAGE_DIR / "debug").mkdir(parents=True, exist_ok=True)
-TRAINING_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ----------------------------
@@ -105,6 +116,7 @@ _ocr: Optional[PlateOCR] = None
 
 
 def get_detector() -> PlateDetector:
+    """Get singleton plate detector (uses models/best.engine for TRT)"""
     global _detector
     if _detector is None:
         _detector = PlateDetector()
@@ -127,141 +139,225 @@ def norm_plate_text(s: str) -> str:
     return s
 
 
-@celery_app.task(name="tasks.process_capture")
-def process_capture(capture_id: int, image_path: str):
-    log.info("🚀 TASK STARTED: capture_id=%s, image_path=%s", capture_id, image_path)
-    img_path = Path(image_path)
-
-    if not img_path.exists():
-        return {"ok": False, "error": "image not found", "image_path": image_path}
-
-    detector = get_detector()
-    ocr = get_ocr()
-
+@celery_app.task(name="tasks.process_lpr_task", bind=True, max_retries=3)
+def process_lpr_task(
+    self,
+    vehicle_crop_b64: str,
+    track_id: int,
+    vehicle_count: int,
+    camera_id: str,
+):
+    """
+    Process LPR for a vehicle that crossed the counting line
+    
+    Args:
+        vehicle_crop_b64: Base64-encoded vehicle crop image
+        track_id: ByteTrack track ID
+        vehicle_count: Sequential count number
+        camera_id: Camera identifier
+    
+    Returns:
+        Dict with processing results
+    """
+    log.info(
+        "🚀 LPR TASK STARTED: track_id=%d, count=%d, camera=%s",
+        track_id, vehicle_count, camera_id
+    )
+    
     db = SessionLocal()
+    
     try:
         # =============================================
-        # 1) DETECT + CROP
+        # 1) DECODE BASE64 VEHICLE CROP
         # =============================================
-        det = detector.detect_and_crop(str(img_path))
-        crop_path = det.crop_path
-
+        try:
+            img_bytes = base64.b64decode(vehicle_crop_b64)
+            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+            vehicle_img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            
+            if vehicle_img is None or vehicle_img.size == 0:
+                raise ValueError("Failed to decode vehicle crop image")
+            
+            log.debug(
+                "Vehicle crop decoded: shape=%s, track_id=%d",
+                vehicle_img.shape, track_id
+            )
+        except Exception as e:
+            log.error("Failed to decode vehicle crop (track_id=%d): %s", track_id, e)
+            return {
+                "ok": False,
+                "error": f"decode_failed:{str(e)}",
+                "track_id": track_id,
+                "vehicle_count": vehicle_count,
+                "camera_id": camera_id,
+            }
+        
+        # Save vehicle crop for debugging/records
+        vehicle_crop_dir = STORAGE_DIR / "original" / "vehicle_crops"
+        vehicle_crop_dir.mkdir(parents=True, exist_ok=True)
+        vehicle_crop_path = vehicle_crop_dir / f"{camera_id}_{track_id}_{vehicle_count}.jpg"
+        cv2.imwrite(str(vehicle_crop_path), vehicle_img)
+        
         # =============================================
-        # 2) CROP VALIDATION
-        #    กรอง crop ที่ไม่ใช่ป้ายจริง (ข้างรถ / เล็กเกิน / aspect ผิด)
+        # 2) DETECT LICENSE PLATE USING models/best.engine
+        #    (TensorRT model for plate detection & crop)
+        # =============================================
+        detector = get_detector()
+        
+        try:
+            # Save vehicle image to temp file for detector input
+            temp_vehicle_path = STORAGE_DIR / "crops" / f"temp_vehicle_{track_id}.jpg"
+            cv2.imwrite(str(temp_vehicle_path), vehicle_img)
+            
+            # Run plate detection (uses models/best.engine in TRT mode)
+            det = detector.detect_and_crop(str(temp_vehicle_path))
+            plate_crop_path = det.crop_path
+            det_conf = det.det_conf
+            
+            log.info(
+                "Plate detected: track_id=%d, conf=%.2f, crop=%s",
+                track_id, det_conf, plate_crop_path
+            )
+            
+            # Cleanup temp file
+            if temp_vehicle_path.exists():
+                temp_vehicle_path.unlink()
+        
+        except Exception as e:
+            log.warning(
+                "Plate detection failed for track_id=%d: %s",
+                track_id, e
+            )
+            return {
+                "ok": False,
+                "error": f"detection_failed:{str(e)}",
+                "track_id": track_id,
+                "vehicle_count": vehicle_count,
+                "camera_id": camera_id,
+                "vehicle_crop_path": str(vehicle_crop_path),
+            }
+        
+        # =============================================
+        # 3) CROP VALIDATION
         # =============================================
         crop_validator = get_crop_validator()
         if crop_validator is not None:
-            crop_img_for_val = cv2.imread(crop_path)
-            if crop_img_for_val is not None:
-                val_result = crop_validator.validate(crop_img_for_val)
+            plate_crop_img = cv2.imread(plate_crop_path)
+            if plate_crop_img is not None:
+                val_result = crop_validator.validate(plate_crop_img)
                 if not val_result.passed:
                     log.info(
-                        "CropValidator REJECT capture_id=%s: %s (aspect=%.2f size=%dx%d)",
-                        capture_id, val_result.reject_reason,
+                        "CropValidator REJECT track_id=%d: %s (aspect=%.2f size=%dx%d)",
+                        track_id, val_result.reject_reason,
                         val_result.aspect_ratio, val_result.width, val_result.height,
                     )
                     return {
                         "ok": False,
                         "error": f"crop_rejected:{val_result.reject_reason}",
-                        "capture_id": capture_id,
-                        "image_path": image_path,
+                        "track_id": track_id,
+                        "vehicle_count": vehicle_count,
+                        "camera_id": camera_id,
+                        "vehicle_crop_path": str(vehicle_crop_path),
                         "crop_validation": {
                             "aspect_ratio": val_result.aspect_ratio,
                             "width": val_result.width,
                             "height": val_result.height,
                             "contrast": val_result.contrast,
                             "edge_density": val_result.edge_density,
-                            "is_side_view": val_result.is_side_view,
                         },
                     }
-
+        
         # =============================================
-        # 3) OCR
+        # 4) OCR PLATE TEXT
         # =============================================
+        ocr = get_ocr()
         o = ocr.read_plate(
-            crop_path,
+            plate_crop_path,
             debug_dir=STORAGE_DIR / "debug",
-            debug_id=str(capture_id),
+            debug_id=f"{camera_id}_{track_id}_{vehicle_count}",
         )
+        
         plate_text = (o.plate_text or "").strip()
         province = (o.province or "").strip()
         conf = float(o.confidence or 0.0)
         raw = o.raw or {}
-
+        
         plate_text_norm = norm_plate_text(plate_text)
-
+        
+        # Master lookup assistance
         assisted = assist_with_master(db, plate_text, province, conf)
         plate_text = assisted["plate_text"]
         plate_text_norm = assisted["plate_text_norm"]
         province = assisted["province"]
         conf = float(assisted["confidence"])
-
+        
         if conf < 0.6:
             log.warning(
-                "Low OCR confidence for capture_id=%s variant=%s candidates=%s",
-                capture_id,
+                "Low OCR confidence for track_id=%d variant=%s candidates=%s",
+                track_id,
                 raw.get("chosen_variant"),
                 raw.get("candidates"),
             )
-
+        
         # =============================================
-        # 4) PLATE DEDUP
-        #    กรองทะเบียนเดียวกันที่เข้ามาซ้ำภายใน cooldown period
+        # 5) PLATE DEDUP CHECK
         # =============================================
         plate_dedup = get_plate_dedup()
-        camera_id = ""
-        try:
-            row = db.execute(
-                text("SELECT camera_id FROM captures WHERE id = :id"),
-                {"id": int(capture_id)},
-            ).fetchone()
-            if row and row[0]:
-                camera_id = str(row[0])
-        except Exception as e:
-            log.debug("Could not fetch camera_id for dedup: %s", e)
-
         if plate_dedup is not None and plate_text_norm:
             dedup_result = plate_dedup.check(
                 plate_text_norm=plate_text_norm,
                 confidence=conf,
-                capture_id=int(capture_id),
+                capture_id=track_id,  # Using track_id as pseudo capture_id
                 camera_id=camera_id,
             )
-
-            if dedup_result.is_duplicate:
-                if dedup_result.action == "skip":
-                    log.info(
-                        "PlateDedup SKIP capture_id=%s plate=%s "
-                        "(existing_cap=%s conf=%.2f >= new_conf=%.2f)",
-                        capture_id, plate_text_norm,
-                        dedup_result.existing_capture_id,
-                        dedup_result.existing_confidence,
-                        conf,
-                    )
-                    return {
-                        "ok": False,
-                        "error": "plate_duplicate:skip",
-                        "capture_id": capture_id,
-                        "plate_text_norm": plate_text_norm,
-                        "existing_capture_id": dedup_result.existing_capture_id,
-                        "existing_confidence": dedup_result.existing_confidence,
-                        "new_confidence": conf,
-                        "reason": dedup_result.reason,
-                    }
-                elif dedup_result.action == "update":
-                    # conf ใหม่สูงกว่า — insert ตามปกติ (Redis key อัปเดตแล้วใน PlateDedup)
-                    log.info(
-                        "PlateDedup UPDATE capture_id=%s plate=%s "
-                        "(old_cap=%s conf=%.2f -> new_conf=%.2f)",
-                        capture_id, plate_text_norm,
-                        dedup_result.existing_capture_id,
-                        dedup_result.existing_confidence,
-                        conf,
-                    )
-
+            
+            if dedup_result.is_duplicate and dedup_result.action == "skip":
+                log.info(
+                    "PlateDedup SKIP track_id=%d plate=%s "
+                    "(existing_cap=%s conf=%.2f >= new_conf=%.2f)",
+                    track_id, plate_text_norm,
+                    dedup_result.existing_capture_id,
+                    dedup_result.existing_confidence,
+                    conf,
+                )
+                return {
+                    "ok": False,
+                    "error": "plate_duplicate:skip",
+                    "track_id": track_id,
+                    "vehicle_count": vehicle_count,
+                    "camera_id": camera_id,
+                    "plate_text_norm": plate_text_norm,
+                    "existing_confidence": dedup_result.existing_confidence,
+                    "new_confidence": conf,
+                }
+        
         # =============================================
-        # 5) INSERT detections
+        # 6) INSERT CAPTURES RECORD
+        # =============================================
+        capture_id = db.execute(
+            text("""
+                INSERT INTO captures (
+                    source, camera_id, track_id, captured_at,
+                    original_path, sha256
+                )
+                VALUES (
+                    :source, :camera_id, :track_id, :captured_at,
+                    :original_path, :sha256
+                )
+                RETURNING id
+            """),
+            {
+                "source": "LINE_CROSSING",
+                "camera_id": camera_id,
+                "track_id": track_id,
+                "captured_at": datetime.now(timezone.utc),
+                "original_path": str(vehicle_crop_path),
+                "sha256": sha256_file(vehicle_crop_path),
+            },
+        ).scalar_one()
+        
+        # =============================================
+        # 7) INSERT DETECTIONS RECORD
         # =============================================
         detection_id = db.execute(
             text("""
@@ -271,14 +367,14 @@ def process_capture(capture_id: int, image_path: str):
             """),
             {
                 "capture_id": int(capture_id),
-                "crop_path": str(crop_path),
-                "det_conf": float(det.det_conf),
+                "crop_path": str(plate_crop_path),
+                "det_conf": float(det_conf),
                 "bbox": json.dumps(det.bbox or {}, ensure_ascii=False),
             },
         ).scalar_one()
-
+        
         # =============================================
-        # 6) INSERT plate_reads
+        # 8) INSERT PLATE_READS RECORD
         # =============================================
         read_id = db.execute(
             text("""
@@ -302,11 +398,11 @@ def process_capture(capture_id: int, image_path: str):
                 "created_at": datetime.now(timezone.utc),
             },
         ).scalar_one()
-
+        
         db.commit()
-
+        
         # =============================================
-        # 7) MASTER PLATE UPSERT
+        # 9) MASTER PLATE UPSERT
         # =============================================
         if conf >= MASTER_CONF_THRESHOLD and plate_text_norm:
             db.execute(
@@ -345,9 +441,17 @@ def process_capture(capture_id: int, image_path: str):
                 },
             )
             db.commit()
-
+        
+        log.info(
+            "✅ LPR SUCCESS: track_id=%d, count=%d, plate=%s, conf=%.2f",
+            track_id, vehicle_count, plate_text, conf
+        )
+        
         return {
             "ok": True,
+            "track_id": track_id,
+            "vehicle_count": vehicle_count,
+            "camera_id": camera_id,
             "capture_id": int(capture_id),
             "detection_id": int(detection_id),
             "read_id": int(read_id),
@@ -356,74 +460,30 @@ def process_capture(capture_id: int, image_path: str):
             "province": province,
             "confidence": conf,
             "master_assisted": assisted.get("assisted", False),
-            "crop_path": str(crop_path),
-            "plate_candidates": raw.get("plate_candidates", []),
-            "province_candidates": raw.get("province_candidates", []),
-            "consensus_metrics": raw.get("consensus_metrics", {}),
-            "confidence_flags": raw.get("confidence_flags", []),
-            "debug_flags": raw.get("debug_flags", []),
-            "debug_artifacts": raw.get("debug_artifacts", {}),
+            "vehicle_crop_path": str(vehicle_crop_path),
+            "plate_crop_path": str(plate_crop_path),
         }
-
+    
     except Exception as e:
         db.rollback()
+        log.exception(
+            "LPR task failed for track_id=%d, count=%d: %s",
+            track_id, vehicle_count, e
+        )
+        
+        # Retry logic
+        try:
+            raise self.retry(exc=e, countdown=5)
+        except self.MaxRetriesExceededError:
+            log.error("Max retries exceeded for track_id=%d", track_id)
+        
         return {
             "ok": False,
             "error": str(e),
-            "capture_id": capture_id,
-            "image_path": image_path,
+            "track_id": track_id,
+            "vehicle_count": vehicle_count,
+            "camera_id": camera_id,
         }
-    finally:
-        db.close()
-
-
-@celery_app.task(name="tasks.export_feedback_samples")
-def export_feedback_samples(limit: int = FEEDBACK_EXPORT_LIMIT):
-    """Export verified feedback samples เพื่อใช้ใน training"""
-    images_dir = TRAINING_DIR / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = TRAINING_DIR / "manifest.jsonl"
-
-    db = SessionLocal()
-    try:
-        rows = db.execute(
-            text("""
-                SELECT id, crop_path, corrected_text, corrected_province
-                FROM feedback_samples
-                WHERE used_in_train = false
-                ORDER BY created_at ASC
-                LIMIT :limit
-            """),
-            {"limit": int(limit)},
-        ).mappings().all()
-
-        if not rows:
-            return {"ok": True, "exported": 0}
-
-        with manifest_path.open("a", encoding="utf-8") as f:
-            for row in rows:
-                src = Path(row["crop_path"])
-                if not src.exists():
-                    continue
-                dst = images_dir / f"feedback_{row['id']}{src.suffix or '.jpg'}"
-                if not dst.exists():
-                    shutil.copy2(src, dst)
-                f.write(json.dumps({
-                    "image": str(dst),
-                    "plate_text": row["corrected_text"],
-                    "province": row["corrected_province"],
-                    "source": "MLPR",
-                }, ensure_ascii=False) + "\n")
-
-        db.execute(
-            text("UPDATE feedback_samples SET used_in_train = true WHERE id = ANY(:ids)"),
-            {"ids": [int(r["id"]) for r in rows]},
-        )
-        db.commit()
-        return {"ok": True, "exported": len(rows), "manifest": str(manifest_path)}
-
-    except Exception as e:
-        db.rollback()
-        return {"ok": False, "error": str(e)}
+    
     finally:
         db.close()

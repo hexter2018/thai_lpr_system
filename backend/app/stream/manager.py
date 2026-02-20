@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 Stream Manager Service
-Runs RTSP capture and MJPEG server for all cameras
+Runs RTSP capture with line crossing detection for all cameras
 """
 import asyncio
 import logging
 import signal
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from app.stream.rtsp_manager import RTSPManager
 from app.stream.mjpeg_server import MJPEGServer
@@ -22,18 +22,27 @@ log = logging.getLogger(__name__)
 
 
 class StreamManagerService:
-    """Manages all camera streams and MJPEG server"""
+    """Manages all camera streams with line crossing detection"""
     
-    def __init__(self):
+    def __init__(self, count_line: Optional[List[Tuple[int, int]]] = None):
+        """
+        Initialize Stream Manager
+        
+        Args:
+            count_line: Virtual counting line as [(x1, y1), (x2, y2)]
+                       If None, uses default horizontal line
+        """
         self.rtsp_manager: RTSPManager | None = None
         self.active_camera_ids: set[str] = set()
         self.running = False
+        self.count_line = count_line or [(100, 400), (900, 400)]
+        
+        log.info("StreamManagerService initialized with count_line: %s", self.count_line)
     
     async def load_cameras(self):
         """Load active cameras from database"""
         try:
             async with AsyncSessionLocal() as session:
-                # Import here to avoid circular imports
                 from app.db.models import Camera
                 
                 result = await session.execute(
@@ -47,7 +56,7 @@ class StreamManagerService:
             return []
     
     async def start_streams(self, cameras: List):
-        """Start all RTSP streams using the unified stream manager."""
+        """Start all RTSP streams with line crossing tracking"""
         camera_configs: Dict[str, object] = {
             camera.camera_id: camera for camera in cameras if camera.enabled
         }
@@ -56,13 +65,18 @@ class StreamManagerService:
             camera_configs=camera_configs,
             redis_client=None,
             db_session_factory=AsyncSessionLocal,
+            count_line=self.count_line,  # Pass count line to RTSP manager
         )
         self.rtsp_manager.start()
         self.active_camera_ids = set(camera_configs.keys())
-        log.info("Started streams for cameras: %s", sorted(self.active_camera_ids))
+        log.info(
+            "Started streams for cameras: %s (count_line=%s)",
+            sorted(self.active_camera_ids),
+            self.count_line
+        )
 
     async def restart_streams(self, cameras: List):
-        """Restart stream manager after camera configuration changes."""
+        """Restart stream manager after camera configuration changes"""
         if self.rtsp_manager:
             self.rtsp_manager.stop()
         await self.start_streams(cameras)
@@ -77,12 +91,12 @@ class StreamManagerService:
         cameras = await self.load_cameras()
         log.info(f"Loaded {len(cameras)} active cameras")
         
-        # Start MJPEG server
+        # Start streams
         await self.start_streams(cameras)
               
         # Monitor and reload cameras periodically
         while self.running:
-            await asyncio.sleep(5)  # Check every minute
+            await asyncio.sleep(60)  # Check every minute
             
             # Reload cameras (handle added/removed)
             cameras = await self.load_cameras()
@@ -111,11 +125,30 @@ class StreamManagerService:
         await async_engine.dispose()
         
         log.info("Stream Manager Service stopped")
+    
+    def set_count_line(self, count_line: List[Tuple[int, int]]):
+        """Update count line (requires restart)"""
+        self.count_line = count_line
+        log.info("Count line updated to: %s (restart required)", count_line)
 
 
 async def main():
     """Main entry point"""
-    service = StreamManagerService()
+    # Optional: Parse count line from environment variable
+    import os
+    import json
+    count_line_env = os.getenv("COUNT_LINE")
+    if count_line_env:
+        try:
+            count_line = json.loads(count_line_env)
+            log.info("Using count line from env: %s", count_line)
+        except Exception as e:
+            log.warning("Failed to parse COUNT_LINE env: %s, using default", e)
+            count_line = None
+    else:
+        count_line = None
+    
+    service = StreamManagerService(count_line=count_line)
     
     # Handle signals
     loop = asyncio.get_event_loop()

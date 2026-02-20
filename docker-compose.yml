@@ -86,44 +86,52 @@ services:
       STORAGE_DIR: /storage
       MODELS_DIR: /models
       
+      # ===== เพิ่มส่วนนี้ =====
       # TensorRT Settings
+      USE_TRT_DETECTOR: "true"
+      MODEL_PATH: /models/best.engine
       TRT_WORKSPACE: "6144"
       TRT_FP16: "1"
-      
-      # Vehicle Detection Model
-      VEHICLE_MODEL_PATH: /models/vehicles.engine
-      VEHICLE_CONF_THRESHOLD: "0.40"
-      VEHICLE_IOU_THRESHOLD: "0.50"
+      TRT_INPUT_W: "640"
+      TRT_INPUT_H: "640"
+      TRT_CONF_THRES: "0.35"
+      TRT_IOU_THRES: "0.45"
+      TRT_CLASS_ID: "0"
       
       # Plate Detection Model
       PLATE_MODEL_PATH: /models/best.engine
       PLATE_CONF_THRESHOLD: "0.35"
       PLATE_IOU_THRESHOLD: "0.45"
       
-      # ByteTrack Configuration
-      TRACK_THRESH: "0.45"
-      TRACK_BUFFER: "30"
-      MATCH_THRESH: "0.80"
-      
-      # Zone Trigger Configuration
-      ZONE_TRIGGER_ENABLED: "true"
-      ZONE_TRIGGER_ONCE_PER_TRACK: "true"
-      ZONE_MIN_FRAMES_IN_ZONE: "3"
-      
       # OCR Configuration
       OCR_LANGUAGE: "th,en"
       OCR_GPU: "true"
-      OCR_PROVINCE_MATCHING_ENABLED: "true"
-      OCR_PROVINCE_MIN_SCORE: "70.0"
+      OCR_VARIANT_LIMIT: "16"
+      OCR_TOP_K: "3"
+      OCR_CONSENSUS_MIN: "0.55"
+      OCR_MARGIN_MIN: "0.16"
       
-      # Active Learning
-      ACTIVE_LEARNING_ENABLED: "true"
-      MLPR_EXPORT_DIR: /storage/retrain_easyocr
+      # Crop Validation
+      CROP_VALIDATOR_ENABLED: "true"
+      CROP_MIN_WIDTH: "40"
+      CROP_MIN_HEIGHT: "15"
+      CROP_MIN_ASPECT_RATIO: "1.5"
+      CROP_MAX_ASPECT_RATIO: "7.0"
+      CROP_MIN_CONTRAST: "20.0"
+      CROP_MIN_EDGE_DENSITY: "0.03"
+      
+      # Plate Deduplication
+      PLATE_DEDUP_ENABLED: "true"
+      PLATE_DEDUP_COOLDOWN_SEC: "60"
+      PLATE_DEDUP_MIN_CONFIDENCE: "0.30"
+      PLATE_DEDUP_CAMERA_SCOPE: "true"
+      
+      # Master Plate Threshold
+      MASTER_CONF_THRESHOLD: "0.95"
       
       # Worker Settings
       CELERY_WORKER_CONCURRENCY: "4"
       CELERY_WORKER_PREFETCH: "8"
-      
     volumes:
       - ./storage:/storage
       - ./models:/models
@@ -156,6 +164,22 @@ services:
       STORAGE_DIR: /storage
       MODELS_DIR: /models
       
+            # ===== เพิ่มส่วนนี้ =====
+      # Counting Line Configuration (JSON format)
+      COUNT_LINE: '[[100, 400], [900, 400]]'
+      
+      # TensorRT Vehicle Detector
+      USE_TRT_VEHICLE_DETECTOR: "true"
+      VEHICLE_MODEL_PATH: /models/vehicles.engine
+      
+      # Tracking Parameters
+      TRACK_THRESH: "0.45"
+      TRACK_BUFFER: "30"
+      MATCH_THRESH: "0.80"
+      TRAJECTORY_MAXLEN: "30"
+      FALLBACK_TRACK_IOU_THRESH: "0.30"
+      VEHICLE_MIN_BLOB_AREA: "5000"
+
       # Stream Settings
       RTSP_RECONNECT_DELAY: "5"
       RTSP_BUFFER_SIZE: "2"

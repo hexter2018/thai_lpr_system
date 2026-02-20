@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies สำหรับ TensorRT (ถ้าใช้)
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
@@ -21,8 +23,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 
+# ===== เพิ่มส่วนนี้ - Copy worker code for tracking engine =====
+RUN mkdir -p /app/worker
+COPY ../worker/tracking /app/worker/tracking
+COPY ../worker/alpr_worker /app/worker/alpr_worker
+
 # Create storage directories
-RUN mkdir -p /storage/captures /storage/crops /storage/retrain_easyocr
+RUN mkdir -p /storage/captures /storage/crops /storage/retrain_easyocr \
+             /storage/original/vehicle_crops /storage/original/zone_trigger
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1

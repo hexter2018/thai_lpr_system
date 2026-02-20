@@ -18,6 +18,18 @@ opencv-python==4.8.1.78
 numpy==1.24.3
 Pillow==10.1.0
 
+# ===== เพิ่มส่วนนี้ =====
+# ByteTrack dependencies
+filterpy==1.4.5
+scikit-image==0.22.0
+lapx  # modern fork of lap
+
+# TensorRT (ถ้า stream-manager ใช้ TensorRT)
+# Uncomment ถ้าต้องการรัน vehicle detection บน stream-manager container
+--extra-index-url https://pypi.nvidia.com
+tensorrt_bindings==8.6.1
+ensorrt_libs==8.6.1
+
 # Utilities
 python-dotenv==1.0.0
 pydantic==2.5.2
