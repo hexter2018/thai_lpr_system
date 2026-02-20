@@ -4,9 +4,11 @@ RTSP Stream Manager with Zone Trigger Logic
 Supports H.264/H.265, ByteTrack integration, and polygon zone detection
 """
 import asyncio
+import hashlib
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -19,7 +21,8 @@ from collections import defaultdict
 
 from sqlalchemy import and_, select
 
-from ..db.models import Camera, VehicleTrack, CameraStats, CameraStatus, VehicleType
+from ..core.config import settings
+from ..db.models import Camera, VehicleTrack, CameraStats, CameraStatus, VehicleType, Capture
 from ..db.session import SessionLocal
 
 log = logging.getLogger(__name__)
@@ -85,6 +88,7 @@ class RTSPStreamManager:
         self.next_track_id: Dict[str, int] = defaultdict(int)
         self.detectors: Dict[str, cv2.BackgroundSubtractor] = {}
         self.last_stats_flush: Dict[str, datetime] = {}
+        self.capture_storage_dir = Path(settings.storage_dir) / "original" / "zone_trigger"
         
         # Zone configs
         self.zones: Dict[str, ZoneConfig] = {}
@@ -265,10 +269,10 @@ class RTSPStreamManager:
                 continue
             detections.append((x, y, x + w, y + h))
 
-        self._update_tracks(camera_id, detections, ts)
+        self._update_tracks(camera_id, detections, frame, ts)
         self._flush_stats_if_needed(camera_id, ts)
 
-    def _update_tracks(self, camera_id: str, detections: List[Tuple[int, int, int, int]], ts: datetime):
+    def _update_tracks(self, camera_id: str, detections: List[Tuple[int, int, int, int]], frame: np.ndarray, ts: datetime):
         tracks = self.track_states[camera_id]
         unmatched_track_ids = set(tracks.keys())
 
@@ -301,9 +305,9 @@ class RTSPStreamManager:
                 del tracks[track_id]
 
         # zone-trigger + db upsert for active tracks only
-        self._upsert_active_tracks(camera_id, ts)
+        self._upsert_active_tracks(camera_id, frame, ts)
 
-    def _upsert_active_tracks(self, camera_id: str, ts: datetime):
+    def _upsert_active_tracks(self, camera_id: str, frame: np.ndarray, ts: datetime):
         tracks = self.track_states[camera_id]
         zone = self.zones.get(camera_id)
         min_frames_in_zone = zone.min_frames_in_zone if zone else 3
@@ -326,6 +330,7 @@ class RTSPStreamManager:
                         if state.frames_in_zone >= min_frames_in_zone:
                             state.lpr_triggered = True
                             state.lpr_triggered_at = ts
+                            self._save_zone_trigger_capture(db, camera_id, state, frame, ts)
                     else:
                         state.frames_in_zone = 0
 
@@ -373,6 +378,49 @@ class RTSPStreamManager:
             raise
         finally:
             db.close()
+
+    def _save_zone_trigger_capture(
+        self,
+        db,
+        camera_id: str,
+        state: LocalTrack,
+        frame: np.ndarray,
+        ts: datetime,
+    ):
+        """Persist a snapshot when a track first reaches zone-trigger threshold."""
+        try:
+            x1, y1, x2, y2 = state.bbox
+            h, w = frame.shape[:2]
+            x1 = max(0, min(x1, w - 1))
+            y1 = max(0, min(y1, h - 1))
+            x2 = max(x1 + 1, min(x2, w))
+            y2 = max(y1 + 1, min(y2, h))
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                crop = frame
+
+            ok, encoded = cv2.imencode('.jpg', crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+            if not ok:
+                log.warning("Failed to encode zone-trigger snapshot", extra={"camera_id": camera_id, "track_id": state.track_id})
+                return
+
+            self.capture_storage_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"{camera_id}_{state.track_id}_{ts.strftime('%Y%m%d_%H%M%S_%f')}_{uuid.uuid4().hex[:8]}.jpg"
+            image_path = self.capture_storage_dir / filename
+            image_bytes = encoded.tobytes()
+            image_path.write_bytes(image_bytes)
+
+            capture = Capture(
+                source="RTSP_ZONE_TRIGGER",
+                camera_id=camera_id,
+                track_id=state.track_id,
+                captured_at=ts,
+                original_path=str(image_path),
+                sha256=hashlib.sha256(image_bytes).hexdigest(),
+            )
+            db.add(capture)
+        except Exception:
+            log.exception("Failed to save zone-trigger snapshot", extra={"camera_id": camera_id, "track_id": state.track_id})
 
     def _flush_stats_if_needed(self, camera_id: str, ts: datetime):
         prev = self.last_stats_flush.get(camera_id)

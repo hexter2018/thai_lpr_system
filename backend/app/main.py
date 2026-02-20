@@ -118,14 +118,17 @@ def get_camera_stats(camera_id: str, db: Session = Depends(get_db)):
 @app.get("/api/tracks/{camera_id}")
 def get_active_tracks(camera_id: str, db: Session = Depends(get_db)):
     """Get active tracks for a camera"""
-    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    active_window_seconds = int(os.getenv("TRACK_ACTIVE_WINDOW_SECONDS", "8"))
+    max_tracks = int(os.getenv("TRACK_ACTIVE_LIMIT", "30"))
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=active_window_seconds)
     
     tracks = db.query(VehicleTrack).filter(
         and_(
             VehicleTrack.camera_id == camera_id,
             VehicleTrack.last_seen >= cutoff
         )
-    ).all()
+    ).order_by(VehicleTrack.last_seen.desc()).limit(max_tracks).all()
     
     result = []
     for track in tracks:
@@ -144,6 +147,7 @@ def get_active_tracks(camera_id: str, db: Session = Depends(get_db)):
             "first_seen": track.first_seen.isoformat(),
             "last_seen": track.last_seen.isoformat(),
             "duration_seconds": int((track.last_seen - track.first_seen).total_seconds()),
+            "seconds_since_seen": max(0, int((now - track.last_seen).total_seconds())),
         })
     
     return result

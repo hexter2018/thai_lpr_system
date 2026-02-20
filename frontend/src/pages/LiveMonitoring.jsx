@@ -21,6 +21,7 @@ const LiveMonitoring = () => {
   const [cameras, setCameras] = useState([]);
   const [selectedCamera, setSelectedCamera] = useState(urlCameraId || null);
   const [activeTracks, setActiveTracks] = useState([]);
+  const activeWindowSeconds = Number(import.meta.env.VITE_TRACK_ACTIVE_WINDOW_SECONDS || 8);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [streamKey, setStreamKey] = useState(Date.now());
@@ -174,9 +175,12 @@ const LiveMonitoring = () => {
           {/* Active Tracks */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="text-lg font-semibold mb-4">
+              <h2 className="text-lg font-semibold mb-1">
                 Active Tracks ({activeTracks.length})
               </h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Showing vehicles seen in the last {activeWindowSeconds}s
+              </p>
               
               <div className="space-y-3 max-h-[600px] overflow-y-auto">
                 {activeTracks.length === 0 ? (
@@ -223,6 +227,17 @@ const LiveMonitoring = () => {
                             </p>
                           </div>
                         )}
+
+                        {track.lpr_triggered && !track.plate_text && (
+                          <div className="mt-2 p-2 bg-white rounded border border-amber-300 text-amber-700 text-xs">
+                            LPR triggered, waiting for plate result
+                          </div>
+                        )}
+
+                        <div className="flex justify-between">
+                          <span>Last seen:</span>
+                          <span className="font-medium">{track.seconds_since_seen ?? 0}s ago</span>
+                        </div>
                         
                         <div className="flex justify-between pt-2 border-t border-gray-200 mt-2">
                           <span>Duration:</span>
