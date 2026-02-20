@@ -3,64 +3,45 @@ set -euo pipefail
 
 export PYTHONPATH=/app
 
-if command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-  PYTHON_BIN="python"
-else
-  echo "[worker] ERROR: Python interpreter not found in PATH"
-  exit 1
-fi
+echo "[worker] Starting Thai LPR Worker..."
+echo "[worker] Python version:"
+python3 --version
 
-echo "[worker] python:" && "$PYTHON_BIN" -V
-
-# Auto build/select TensorRT engine per GPU
+echo "[worker] Checking GPU..."
 if command -v nvidia-smi >/dev/null 2>&1; then
-  echo "[worker] NVIDIA GPU detected. Ensuring TensorRT engine..."
-  "$PYTHON_BIN" /app/bin/ensure_engine.py || {
-    echo "[worker] WARNING: Engine build failed, will attempt fallback"
-  }
-
-  if [[ -f /models/.model_path ]]; then
-    export MODEL_PATH="$(cat /models/.model_path)"
-    echo "[worker] MODEL_PATH set to: $MODEL_PATH"
-  else
-    echo "[worker] No .model_path file, checking for fallback models..."
-    if [[ -f /models/best.engine ]]; then
-      export MODEL_PATH="/models/best.engine"
-      echo "[worker] MODEL_PATH set to (cached engine): $MODEL_PATH"
-    elif [[ -f /models/best.pt ]]; then
-      export MODEL_PATH="/models/best.pt"
-      echo "[worker] MODEL_PATH set to (fallback .pt): $MODEL_PATH"
-    fi
-  fi
+    nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+    echo "[worker] ✓ GPU detected"
 else
-  echo "[worker] No nvidia-smi -> running without GPU"
-  if [[ -f /models/best.pt ]]; then
-    export MODEL_PATH="/models/best.pt"
-    echo "[worker] MODEL_PATH set to: $MODEL_PATH"
-  fi
+    echo "[worker] ⚠ No GPU detected - using CPU mode"
 fi
 
-if [[ -z "${MODEL_PATH:-}" ]]; then
-  echo "[worker] ERROR: No model found! Checked for .engine and .pt"
-  exit 1
-fi
+echo "[worker] Waiting for Redis..."
+for i in {1..30}; do
+    if redis-cli -u "${REDIS_URL:-redis://redis:6379/0}" ping 2>/dev/null | grep -q PONG; then
+        echo "[worker] ✓ Redis ready"
+        break
+    fi
+    sleep 1
+done
 
-echo "[worker] starting celery..."
-if [[ "${PRELOAD_MODELS:-1}" == "1" ]]; then
-  echo "[worker] preloading detector and OCR models..."
-  "$PYTHON_BIN" - <<'PY'
-from alpr_worker.inference.detector import PlateDetector
-from alpr_worker.inference.ocr import PlateOCR
+echo "[worker] Waiting for PostgreSQL..."
+for i in {1..30}; do
+    if pg_isready -h postgres -p 5432 -U lpr 2>/dev/null; then
+        echo "[worker] ✓ PostgreSQL ready"
+        break
+    fi
+    sleep 1
+done
 
-PlateDetector()
-PlateOCR()
-print("[worker] preload complete")
-PY
-fi
+echo "[worker] Model path: ${MODEL_PATH:-/models/best.pt}"
+echo "[worker] Storage: ${STORAGE_DIR:-/storage}"
 
-celery -A alpr_worker.celery_app:celery_app worker \
-  -l info \
-  --pool=solo \
-  -Q default,celery
+echo "[worker] Starting Celery worker..."
+exec celery -A alpr_worker.celery_app:celery_app worker \
+    --loglevel=info \
+    --pool=solo \
+    --concurrency=1 \
+    -Q lpr,tracking,training \
+    --max-tasks-per-child=100 \
+    --time-limit=300 \
+    --soft-time-limit=240
