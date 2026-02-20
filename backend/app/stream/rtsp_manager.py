@@ -6,6 +6,7 @@ Supports H.264/H.265, ByteTrack integration, and polygon zone detection
 import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -165,7 +166,7 @@ class RTSPStreamManager:
             if not ret:
                 log.warning("Stream read failed: %s, reconnecting...", camera_id)
                 cap.release()
-                asyncio.sleep(reconnect_delay)
+                time.sleep(reconnect_delay)
                 cap = cv2.VideoCapture(camera.rtsp_url)
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
                 continue
@@ -188,7 +189,7 @@ class RTSPStreamManager:
             
             # FPS throttle
             if frame_delay > 0:
-                asyncio.sleep(frame_delay)
+                time.sleep(frame_delay)
     
     def get_latest_frame(self, camera_id: str) -> Optional[StreamFrame]:
         """Get latest frame from queue"""

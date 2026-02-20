@@ -79,11 +79,7 @@ class StreamManagerService:
         
         # Start MJPEG server
         await self.start_streams(cameras)
-        
-        # Start camera streams
-        for camera in cameras:
-            await self.start_camera_stream(camera)
-        
+              
         # Monitor and reload cameras periodically
         while self.running:
             await asyncio.sleep(5)  # Check every minute
