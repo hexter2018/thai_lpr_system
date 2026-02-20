@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Plus, Edit, Trash2, Save, X, MapPin } from 'lucide-react';
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 const CameraManagement = () => {
   const [cameras, setCameras] = useState([]);

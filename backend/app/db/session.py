@@ -2,7 +2,7 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker
 
 # Get database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://lpr:lpr2024@postgres:5432/lpr_v2")
@@ -36,9 +36,6 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
-
-# Base class for models
-Base = declarative_base()
 
 
 # Sync database dependency (for FastAPI)
