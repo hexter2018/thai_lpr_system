@@ -4,7 +4,11 @@ import axios from 'axios';
 import { Radio, AlertCircle, RefreshCw } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
-const MJPEG_BASE = import.meta.env.VITE_MJPEG_BASE || 'http://localhost:8090';
+const MJPEG_BASE = (
+  import.meta.env.VITE_MJPEG_BASE ||
+  import.meta.env.VITE_STREAM_BASE ||
+  ''
+).replace(/\/$/, '');
 
 const LiveMonitoring = () => {
   const { cameraId: urlCameraId } = useParams();

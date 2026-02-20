@@ -11,6 +11,10 @@ export default defineConfig({
         target: 'http://backend:8000',
         changeOrigin: true,
       },
+      '/stream': {
+        target: 'http://localhost:8090',
+        changeOrigin: true,
+      },
     },
   },
   build: {

@@ -44,6 +44,7 @@ def ensure_onnx(pt_path: Path, onnx_path: Path, imgsz: int) -> None:
     print(f"[ensure_engine] Exporting ONNX from {pt_path} -> {onnx_path}")
     # Use ultralytics python API
     from ultralytics import YOLO  # type: ignore
+
     model = YOLO(str(pt_path), task="detect")
     # export to the same /models dir
     model.export(format="onnx", imgsz=imgsz, opset=12, simplify=True)
@@ -58,6 +59,7 @@ def try_load_engine(engine_path: Path) -> bool:
     # Quick compatibility check: try deserialize engine
     try:
         import tensorrt as trt  # type: ignore
+
         logger = trt.Logger(trt.Logger.ERROR)
         runtime = trt.Runtime(logger)
         with open(engine_path, "rb") as f:
@@ -67,6 +69,41 @@ def try_load_engine(engine_path: Path) -> bool:
     except Exception:
         return False
 
+def pick_compatible_cached_engine(engine_dir: Path, sm: str) -> Path | None:
+    candidates = sorted(engine_dir.glob(f"best_{sm}_trt*_fp16.engine"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for candidate in candidates:
+        if try_load_engine(candidate):
+            return candidate
+    return None
+
+
+def resolve_trtexec() -> Path:
+    trtexec_bin = os.getenv("TRTEXEC_PATH")
+    if trtexec_bin:
+        trtexec = Path(trtexec_bin)
+        if not trtexec.exists():
+            raise RuntimeError(f"TRTEXEC_PATH points to missing file: {trtexec}")
+        return trtexec
+
+    detected = which("trtexec")
+    if detected:
+        return Path(detected)
+
+    # Common TensorRT container install locations.
+    candidates = [
+        Path("/usr/src/tensorrt/bin/trtexec"),
+        Path("/usr/local/tensorrt/bin/trtexec"),
+        Path("/opt/tensorrt/bin/trtexec"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    raise RuntimeError(
+        "TensorRT engine build requires 'trtexec', but it was not found in PATH. "
+        "Set TRTEXEC_PATH to the binary location or install TensorRT CLI tools."
+    )
+
 def build_engine(
     onnx_path: Path,
     engine_path: Path,
@@ -75,28 +112,7 @@ def build_engine(
     workspace_mode: str,
 ) -> None:
     engine_path.parent.mkdir(parents=True, exist_ok=True)
-    trtexec_bin = os.getenv("TRTEXEC_PATH")
-    if trtexec_bin:
-        trtexec = Path(trtexec_bin)
-        if not trtexec.exists():
-            raise RuntimeError(f"TRTEXEC_PATH points to missing file: {trtexec}")
-    else:
-        detected = which("trtexec")
-        if detected:
-            trtexec = Path(detected)
-        else:
-            # Common TensorRT container install locations.
-            candidates = [
-                Path("/usr/src/tensorrt/bin/trtexec"),
-                Path("/usr/local/tensorrt/bin/trtexec"),
-                Path("/opt/tensorrt/bin/trtexec"),
-            ]
-            trtexec = next((p for p in candidates if p.exists()), None)
-            if trtexec is None:
-                raise RuntimeError(
-                    "TensorRT engine build requires 'trtexec', but it was not found in PATH. "
-                    "Set TRTEXEC_PATH to the binary location or install TensorRT CLI tools."
-                )
+    trtexec = resolve_trtexec()
 
     cmd = [
         str(trtexec),
@@ -110,8 +126,6 @@ def build_engine(
         cmd.append(f"--workspace={workspace}")
     if fp16:
         cmd.append("--fp16")
-    # Optional: verbose for debugging
-    # cmd.append("--verbose")
 
     print("[ensure_engine] Building engine via trtexec:")
     print("  " + " ".join(cmd))
@@ -172,6 +186,13 @@ def main():
             return 0
         print("[ensure_engine] Cached engine exists but incompatible -> rebuild")
 
+    if not force_rebuild
+        fallback_engine = pick_compatible_cached_engine(engine_dir, sm)
+        if fallback_engine:
+            print(f"[ensure_engine] Using compatible cached engine: {fallback_engine}")
+            (models_dir / ".model_path").write_text(str(fallback_engine))
+            return 0
+
     ensure_onnx(pt_path, onnx_path, imgsz)
     build_engine(
         onnx_path,
@@ -180,6 +201,22 @@ def main():
         workspace=workspace,
         workspace_mode=workspace_mode,
     )
+    try:
+        build_engine(
+            onnx_path,
+            engine_path,
+            fp16=fp16,
+            workspace=workspace,
+            workspace_mode=workspace_mode,
+        )
+    except RuntimeError as exc:
+        if "trtexec" in str(exc) and not force_rebuild:
+            fallback_engine = pick_compatible_cached_engine(engine_dir, sm)
+            if fallback_engine:
+                print(f"[ensure_engine] trtexec unavailable, using cached engine: {fallback_engine}")
+                (models_dir / ".model_path").write_text(str(fallback_engine))
+                return 0
+        raise
 
     # Validate
     if not try_load_engine(engine_path):
