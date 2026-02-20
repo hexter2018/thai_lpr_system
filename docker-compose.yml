@@ -147,8 +147,8 @@ services:
   # ==================== RTSP Stream Manager ====================
   stream-manager:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.stream
+      context: .
+      dockerfile: backend/Dockerfile.stream
     deploy:
       resources:
         reservations:
