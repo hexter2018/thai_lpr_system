@@ -2,8 +2,9 @@
 import os
 import re
 import subprocess
-from shutil import which
+
 from pathlib import Path
+from shutil import which
 
 def sh(cmd: list[str]) -> str:
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
@@ -19,8 +20,8 @@ def has_nvidia_smi() -> bool:
 def gpu_compute_cap() -> str:
     # returns like "8.6"
     out = sh(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"])
-    line = out.splitlines()[0].strip()
-    return line
+    return out.splitlines()[0].strip()
+
 
 def gpu_name() -> str:
     out = sh(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
@@ -29,6 +30,7 @@ def gpu_name() -> str:
 def tensorrt_version() -> str:
     try:
         import tensorrt as trt  # type: ignore
+
         v = getattr(trt, "__version__", "unknown")
         # keep major.minor (e.g. 10.15)
         m = re.match(r"^(\d+\.\d+)", str(v))
@@ -64,13 +66,14 @@ def try_load_engine(engine_path: Path) -> bool:
         runtime = trt.Runtime(logger)
         with open(engine_path, "rb") as f:
             data = f.read()
-        eng = runtime.deserialize_cuda_engine(data)
-        return eng is not None
+        engine = runtime.deserialize_cuda_engine(data)
+        return engine is not None
     except Exception:
         return False
 
-def pick_compatible_cached_engine(engine_dir: Path, sm: str) -> Path | None:
-    candidates = sorted(engine_dir.glob(f"best_{sm}_trt*_fp16.engine"), key=lambda p: p.stat().st_mtime, reverse=True)
+def pick_compatible_cached_engine(engine_dir: Path, engine_prefix: str, sm: str) -> Path | None:
+    pattern = f"{engine_prefix}_{sm}_trt*_fp16.engine"
+    candidates = sorted(engine_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
     for candidate in candidates:
         if try_load_engine(candidate):
             return candidate
@@ -90,12 +93,11 @@ def resolve_trtexec() -> Path:
         return Path(detected)
 
     # Common TensorRT container install locations.
-    candidates = [
+    for candidate in [
         Path("/usr/src/tensorrt/bin/trtexec"),
         Path("/usr/local/tensorrt/bin/trtexec"),
         Path("/opt/tensorrt/bin/trtexec"),
-    ]
-    for candidate in candidates:
+    ]:
         if candidate.exists():
             return candidate
 
@@ -104,13 +106,7 @@ def resolve_trtexec() -> Path:
         "Set TRTEXEC_PATH to the binary location or install TensorRT CLI tools."
     )
 
-def build_engine(
-    onnx_path: Path,
-    engine_path: Path,
-    fp16: bool,
-    workspace: int,
-    workspace_mode: str,
-) -> None:
+def build_engine(onnx_path: Path, engine_path: Path, fp16: bool, workspace: int, workspace_mode: str) -> None:
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     trtexec = resolve_trtexec()
 
@@ -134,18 +130,22 @@ def build_engine(
     if not engine_path.exists():
         raise RuntimeError("Engine build failed: engine file not created.")
 
-def main():
+def main() -> int:
     models_dir = Path(os.getenv("MODELS_DIR", "/models"))
     pt_path = Path(os.getenv("PT_PATH", str(models_dir / "best.pt")))
     onnx_path = Path(os.getenv("ONNX_PATH", str(models_dir / "best.onnx")))
 
     engine_dir = Path(os.getenv("ENGINE_DIR", str(models_dir / "engines")))
     engine_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path_file = Path(os.getenv("OUTPUT_PATH_FILE", str(models_dir / ".model_path")))
+    engine_basename = os.getenv("ENGINE_BASENAME", onnx_path.stem)
+
     imgsz = int(os.getenv("DETECTOR_IMGSZ", "640"))
     fp16 = os.getenv("TRT_FP16", "1") == "1"
-    raw_ws = os.getenv("TRT_WORKSPACE", "4096")
+    
     try:
-        workspace = int(raw_ws)
+        workspace = workspace = int(os.getenv("TRT_WORKSPACE", "4096"))
     except ValueError:
         # fallback safe default
         workspace = 4096
@@ -155,10 +155,10 @@ def main():
         print("[ensure_engine] No NVIDIA GPU detected (nvidia-smi not found). Skip engine.")
         return 0
 
-    cc = gpu_compute_cap()            # "8.6"
-    sm = "sm" + cc.replace(".", "")   # "sm86"
+    cc = gpu_compute_cap()
+    sm = "sm" + cc.replace(".", "")
     gname = gpu_name()
-    trt_ver = tensorrt_version()      # "10.15" (best effort)
+    trt_ver = tensorrt_version()
     trt_tag = "trt" + trt_ver.replace(".", "_")
     workspace_mode = os.getenv("TRT_WORKSPACE_MODE", "auto").lower()
     if workspace_mode not in {"auto", "mempool", "workspace"}:
@@ -171,36 +171,26 @@ def main():
             major = None
         workspace_mode = "mempool" if (major is not None and major >= 10) else "workspace"
 
-    engine_path = engine_dir / f"best_{sm}_{trt_tag}_fp16.engine"
+    engine_path = engine_dir / f"{engine_basename}_{sm}_{trt_tag}_fp16.engine"
 
     print(f"[ensure_engine] GPU={gname} compute={cc} -> {sm}")
     print(f"[ensure_engine] TensorRT={trt_ver} -> {trt_tag}")
     print(f"[ensure_engine] Target engine: {engine_path}")
 
-    if engine_path.exists() and not force_rebuild:
-        ok = try_load_engine(engine_path)
-        if ok:
-            print(f"[ensure_engine] Engine OK (cached): {engine_path}")
-            # export to env file for start.sh
-            (models_dir / ".model_path").write_text(str(engine_path))
-            return 0
-        print("[ensure_engine] Cached engine exists but incompatible -> rebuild")
+    if engine_path.exists() and not force_rebuild and try_load_engine(engine_path):
+        print(f"[ensure_engine] Engine OK (cached): {engine_path}")
+        output_path_file.write_text(str(engine_path))
+        return 0
 
-    if not force_rebuild
-        fallback_engine = pick_compatible_cached_engine(engine_dir, sm)
+    if not force_rebuild:
+        fallback_engine = pick_compatible_cached_engine(engine_dir, engine_basename, sm)
         if fallback_engine:
             print(f"[ensure_engine] Using compatible cached engine: {fallback_engine}")
-            (models_dir / ".model_path").write_text(str(fallback_engine))
+            output_path_file.write_text(str(fallback_engine))
             return 0
 
     ensure_onnx(pt_path, onnx_path, imgsz)
-    build_engine(
-        onnx_path,
-        engine_path,
-        fp16=fp16,
-        workspace=workspace,
-        workspace_mode=workspace_mode,
-    )
+
     try:
         build_engine(
             onnx_path,
@@ -211,10 +201,10 @@ def main():
         )
     except RuntimeError as exc:
         if "trtexec" in str(exc) and not force_rebuild:
-            fallback_engine = pick_compatible_cached_engine(engine_dir, sm)
+            fallback_engine = pick_compatible_cached_engine(engine_dir, engine_basename, sm)
             if fallback_engine:
                 print(f"[ensure_engine] trtexec unavailable, using cached engine: {fallback_engine}")
-                (models_dir / ".model_path").write_text(str(fallback_engine))
+                output_path_file.write_text(str(fallback_engine))
                 return 0
         raise
 
@@ -223,7 +213,7 @@ def main():
         raise RuntimeError("Engine built but failed to deserialize (still incompatible).")
 
     print(f"[ensure_engine] Engine ready: {engine_path}")
-    (models_dir / ".model_path").write_text(str(engine_path))
+    output_path_file.write_text(str(engine_path))
     return 0
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ from ..db.session import SessionLocal
 
 try:
     from worker.tracking.bytetrack_engine import LPRTrackingEngine, Detection
-    from worker.alpr_worker.tasks import process_lpr_task
+
 except ImportError:
     # Fallback สำหรับ local development
     import sys
@@ -41,6 +41,15 @@ except ImportError:
     for worker_path in candidate_worker_paths:
         if worker_path.exists() and str(worker_path) not in sys.path:
             sys.path.insert(0, str(worker_path))
+
+    from worker.tracking.bytetrack_engine import LPRTrackingEngine, Detection
+
+try:
+    from worker.alpr_worker.tasks import process_lpr_task
+except ImportError:
+    process_lpr_task = None
+    log = logging.getLogger(__name__)
+    log.warning("LPR Celery task import failed; LPR dispatch will be retried lazily")    
 
 log = logging.getLogger(__name__)
 
@@ -359,6 +368,14 @@ class RTSPStreamManager:
     ):
         """Dispatch LPR processing task to Celery worker"""
         try:
+
+            global process_lpr_task
+
+            if process_lpr_task is None:
+                from worker.alpr_worker.tasks import process_lpr_task as imported_task
+                process_lpr_task = imported_task
+
+
             # Encode vehicle crop to Base64
             ok, encoded = cv2.imencode('.jpg', vehicle_crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
             if not ok:

@@ -82,6 +82,52 @@ if [ "$PG_READY" = false ]; then
 fi
 echo ""
 
+# ==================== TensorRT Engine Preparation ====================
+ensure_engine_model() {
+    local model_name="$1"
+    local pt_path="$2"
+    local onnx_path="$3"
+    local output_path_file="$4"
+
+    if [ "${USE_TRT_DETECTOR:-false}" != "true" ]; then
+        return 0
+    fi
+
+    if [ ! -f "$pt_path" ] && [ ! -f "$onnx_path" ]; then
+        echo "[worker] ⚠ ${model_name} source model not found (.pt/.onnx): $pt_path / $onnx_path"
+        return 0
+    fi
+
+    echo "[worker] Preparing TensorRT engine for ${model_name}..."
+    if MODELS_DIR="${MODELS_DIR:-/models}" \
+        PT_PATH="$pt_path" \
+        ONNX_PATH="$onnx_path" \
+        OUTPUT_PATH_FILE="$output_path_file" \
+        python3 /app/bin/ensure_engine.py; then
+        local engine_path
+        engine_path="$(cat "$output_path_file")"
+        echo "[worker] ✓ ${model_name} engine ready: $engine_path"
+        if [ "$model_name" = "plate" ]; then
+            export MODEL_PATH="$engine_path"
+        else
+            export VEHICLE_MODEL_PATH="$engine_path"
+        fi
+    else
+        echo "[worker] ⚠ Failed to prepare ${model_name} engine. Will use configured path/fallback."
+    fi
+}
+
+# Build/resolve engines from .pt/.onnx before worker start
+ensure_engine_model "plate" \
+    "${PLATE_PT_PATH:-/models/best.pt}" \
+    "${PLATE_ONNX_PATH:-/models/best.onnx}" \
+    "${MODELS_DIR:-/models}/.model_path"
+
+ensure_engine_model "vehicle" \
+    "${VEHICLE_PT_PATH:-/models/vehicles.pt}" \
+    "${VEHICLE_ONNX_PATH:-/models/vehicles.onnx}" \
+    "${MODELS_DIR:-/models}/.vehicle_model_path"
+
 # ==================== Model Configuration ====================
 echo "[worker] === Model Configuration ==="
 echo "[worker] Plate Detection: ${MODEL_PATH:-/models/best.engine}"
