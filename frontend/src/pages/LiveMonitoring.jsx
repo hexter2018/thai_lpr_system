@@ -4,6 +4,13 @@ import axios from 'axios';
 import { Radio, AlertCircle, RefreshCw } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').replace(/\/api$/, '');
+const buildStreamUrl = (base, cameraId, cacheKey) => {
+  const normalizedBase = String(base || '').replace(/\/$/, '');
+  const hasStreamSuffix = /\/stream$/i.test(normalizedBase);
+  const streamPath = hasStreamSuffix ? `${normalizedBase}/${cameraId}` : `${normalizedBase}/stream/${cameraId}`;
+  return `${streamPath}?t=${cacheKey}`;
+};
+
 const buildDefaultMjpegBases = () => {
   if (typeof window === 'undefined') return [''];
   const { protocol, hostname } = window.location;
@@ -157,7 +164,7 @@ const LiveMonitoring = () => {
               <div className="bg-black rounded-lg overflow-hidden aspect-video">
                 <img
                   key={streamKey}
-                  src={`${streamBase}/stream/${selectedCamera}?t=${streamKey}`}
+                  src={buildStreamUrl(streamBase, selectedCamera, streamKey)}
                   alt="Live stream"
                   className="w-full h-full object-contain"
                   onError={(e) => {
