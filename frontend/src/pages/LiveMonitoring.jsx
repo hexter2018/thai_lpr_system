@@ -1,18 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Radio, AlertCircle, RefreshCw } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
-const buildDefaultMjpegBase = () => {
-  return '';
-};
+const buildDefaultMjpegBases = () => {
+  if (typeof window === 'undefined') return [''];
+  const { protocol, hostname } = window.location;
+  const directHostBase = `${protocol}//${hostname}:8090`;
 
-const MJPEG_BASE = (
-  import.meta.env.VITE_MJPEG_BASE ||
-  import.meta.env.VITE_STREAM_BASE ||
-  buildDefaultMjpegBase()
-).replace(/\/$/, '');
+    // Priority: explicit env -> same-origin proxy -> direct stream-manager port fallback
+  const candidates = [
+    import.meta.env.VITE_MJPEG_BASE,
+    import.meta.env.VITE_STREAM_BASE,
+    '',
+    directHostBase,
+  ];
+
+  return candidates
+    .filter(Boolean)
+    .map((base) => String(base).replace(/\/$/, ''))
+    .filter((base, idx, arr) => arr.indexOf(base) === idx);
+};
 
 const LiveMonitoring = () => {
   const { cameraId: urlCameraId } = useParams();
@@ -22,6 +31,8 @@ const LiveMonitoring = () => {
   const activeWindowSeconds = Number(import.meta.env.VITE_TRACK_ACTIVE_WINDOW_SECONDS || 8);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const mjpegBases = useMemo(() => buildDefaultMjpegBases(), []);
+  const [streamBaseIndex, setStreamBaseIndex] = useState(0);
   const [streamKey, setStreamKey] = useState(Date.now());
   
   useEffect(() => {
@@ -68,9 +79,15 @@ const LiveMonitoring = () => {
   };
   
   const refreshStream = () => {
+    setStreamBaseIndex(0);
     setStreamKey(Date.now());
   };
   
+  useEffect(() => {
+    setStreamBaseIndex(0);
+    setStreamKey(Date.now());
+  }, [selectedCamera]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -90,6 +107,7 @@ const LiveMonitoring = () => {
   }
   
   const camera = cameras.find(c => c.camera_id === selectedCamera);
+  const streamBase = mjpegBases[streamBaseIndex] || '';
   
   return (
     <div>
@@ -139,10 +157,15 @@ const LiveMonitoring = () => {
               <div className="bg-black rounded-lg overflow-hidden aspect-video">
                 <img
                   key={streamKey}
-                  src={`${MJPEG_BASE}/stream/${selectedCamera}?t=${streamKey}`}
+                  src={`${streamBase}/stream/${selectedCamera}?t=${streamKey}`}
                   alt="Live stream"
                   className="w-full h-full object-contain"
                   onError={(e) => {
+                    if (streamBaseIndex < mjpegBases.length - 1) {
+                      setStreamBaseIndex((idx) => idx + 1);
+                      setStreamKey(Date.now());
+                      return;
+                    }
                     e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"%3E%3Crect fill="%23333" width="800" height="450"/%3E%3Ctext x="400" y="225" text-anchor="middle" fill="%23666" font-size="20" font-family="sans-serif"%3EStream Unavailable%3C/text%3E%3C/svg%3E';
                   }}
                 />
