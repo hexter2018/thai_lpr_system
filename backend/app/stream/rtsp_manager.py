@@ -45,11 +45,14 @@ except ImportError:
     from worker.tracking.bytetrack_engine import LPRTrackingEngine, Detection
 
 try:
-    from worker.alpr_worker.tasks import process_lpr_task
+     from alpr_worker.tasks import process_lpr_task
 except ImportError:
-    process_lpr_task = None
-    log = logging.getLogger(__name__)
-    log.warning("LPR Celery task import failed; LPR dispatch will be retried lazily")    
+    try:
+        from worker.alpr_worker.tasks import process_lpr_task
+    except ImportError:
+        process_lpr_task = None
+        log = logging.getLogger(__name__)
+        log.warning("LPR Celery task import failed; LPR dispatch will be retried lazily")   
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +99,7 @@ if USE_TRT_VEHICLE_DETECTOR:
                         return []
                     
                     # NMS
-                    from alpr_worker.inference.trt.yolov8_trt_detector import nms_xyxy
+                    from worker.alpr_worker.inference.trt.yolov8_trt_detector import nms_xyxy
                     keep_idx = nms_xyxy(boxes_inp, scores, self.detector.iou_thres)
                     boxes_inp = boxes_inp[keep_idx]
                     scores = scores[keep_idx]
@@ -372,7 +375,10 @@ class RTSPStreamManager:
             global process_lpr_task
 
             if process_lpr_task is None:
-                from worker.alpr_worker.tasks import process_lpr_task as imported_task
+                try:
+                    from alpr_worker.tasks import process_lpr_task as imported_task
+                except ImportError:
+                    from worker.alpr_worker.tasks import process_lpr_task as imported_task
                 process_lpr_task = imported_task
 
 

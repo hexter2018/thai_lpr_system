@@ -172,5 +172,4 @@ exec celery -A alpr_worker.celery_app:celery_app worker \
     --time-limit=300 \
     --soft-time-limit=240 \
     --without-gossip \
-    --without-mingle \
-    --without-heartbeat
+    --without-mingle 
