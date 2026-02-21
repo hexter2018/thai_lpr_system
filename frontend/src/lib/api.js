@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "").replace(/\/api$/, "");
 
 async function buildError(res, fallbackMessage) {
   let detail = "";

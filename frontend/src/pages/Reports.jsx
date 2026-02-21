@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { absImageUrl } from '../lib/api.js'
 
-const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "").replace(/\/api$/, "");
 
 export default function Reports() {
   const [startDate, setStartDate] = useState('')

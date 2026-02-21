@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { CheckCircle, XCircle, AlertCircle, Search } from 'lucide-react';
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').replace(/\/api$/, '');
 
 const THAI_PROVINCES = [
   'กรุงเทพมหานคร', 'กระบี่', 'กาญจนบุรี', 'กาฬสินธุ์', 'กำแพงเพชร',

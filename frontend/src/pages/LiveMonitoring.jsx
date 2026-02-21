@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Radio, AlertCircle, RefreshCw } from 'lucide-react';
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').replace(/\/api$/, '');
 const buildDefaultMjpegBases = () => {
   if (typeof window === 'undefined') return [''];
   const { protocol, hostname } = window.location;

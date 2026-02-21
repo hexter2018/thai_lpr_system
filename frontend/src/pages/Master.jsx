@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { deleteMaster, searchMaster, upsertMaster, absImageUrl } from '../lib/api.js'
 
-const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "").replace(/\/api$/, "");
 
 export default function Master() {
   const [q, setQ] = useState("")

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Camera, CheckCircle, XCircle, Activity } from 'lucide-react';
 import axios from 'axios';
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '').replace(/\/api$/, '');
 
 const StatCard = ({ title, value, change, icon: Icon, trend }) => (
   <div className="bg-white rounded-lg shadow p-6">
