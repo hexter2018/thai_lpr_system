@@ -128,20 +128,40 @@ ensure_engine_model "vehicle" \
     "${VEHICLE_ONNX_PATH:-/models/vehicles.onnx}" \
     "${MODELS_DIR:-/models}/.vehicle_model_path"
 
+resolve_model_path() {
+    local configured_path="$1"
+    if [ -z "$configured_path" ]; then
+        return 0
+    fi
+
+    if [[ "$configured_path" == *.model_path ]] && [ -f "$configured_path" ]; then
+        local resolved_path
+        resolved_path="$(cat "$configured_path" 2>/dev/null)"
+        if [ -n "$resolved_path" ]; then
+            echo "$resolved_path"
+            return 0
+        fi
+    fi
+
+    echo "$configured_path"
+}
+
 # ==================== Model Configuration ====================
 echo "[worker] === Model Configuration ==="
-echo "[worker] Plate Detection: ${MODEL_PATH:-/models/best.engine}"
-echo "[worker] Vehicle Detection: ${VEHICLE_MODEL_PATH:-N/A}"
+resolved_plate_model="$(resolve_model_path "${MODEL_PATH:-/models/.model_path}")"
+resolved_vehicle_model="$(resolve_model_path "${VEHICLE_MODEL_PATH:-/models/.vehicle_model_path}")"
+echo "[worker] Plate Detection: ${resolved_plate_model:-N/A}"
+echo "[worker] Vehicle Detection: ${resolved_vehicle_model:-N/A}"
 echo "[worker] Storage Directory: ${STORAGE_DIR:-/storage}"
 echo "[worker] TensorRT Enabled: ${USE_TRT_DETECTOR:-false}"
 echo ""
 
 # Check if model files exist
-if [ -f "${MODEL_PATH:-/models/best.engine}" ]; then
+if [ -n "$resolved_plate_model" ] && [ -f "$resolved_plate_model" ]; then
     echo "[worker] ✓ Plate model found:"
-    ls -lh "${MODEL_PATH:-/models/best.engine}"
+    ls -lh "$resolved_plate_model"
 else
-    echo "[worker] ⚠ Plate model not found: ${MODEL_PATH:-/models/best.engine}"
+    echo "[worker] ⚠ Plate model not found: ${resolved_plate_model:-N/A}"
     echo "[worker] Looking for fallback models in /models/:"
     ls -lh /models/ 2>/dev/null || echo "[worker]   (empty or not mounted)"
 fi

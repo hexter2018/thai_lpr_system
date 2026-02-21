@@ -89,7 +89,7 @@ services:
       # ===== เพิ่มส่วนนี้ =====
       # TensorRT Settings
       USE_TRT_DETECTOR: "true"
-      MODEL_PATH: /models/best.engine
+      MODEL_PATH: /models/.model_path
       TRT_WORKSPACE: "6144"
       TRT_FP16: "1"
       TRT_INPUT_W: "640"
@@ -99,7 +99,7 @@ services:
       TRT_CLASS_ID: "0"
       
       # Plate Detection Model
-      PLATE_MODEL_PATH: /models/best.engine
+      PLATE_MODEL_PATH: /models/.model_path
       PLATE_CONF_THRESHOLD: "0.35"
       PLATE_IOU_THRESHOLD: "0.45"
       
@@ -170,7 +170,7 @@ services:
       
       # TensorRT Vehicle Detector
       USE_TRT_VEHICLE_DETECTOR: "true"
-      VEHICLE_MODEL_PATH: /models/vehicles.engine
+      VEHICLE_MODEL_PATH: /models/.vehicle_model_path
       
       # Tracking Parameters
       TRACK_THRESH: "0.45"

@@ -149,7 +149,13 @@ class YOLOv8TRTPlateDetector:
     """
 
     def __init__(self):
-        self.model_path = os.getenv("MODEL_PATH", "/models/best.engine")
+        self.model_path = os.getenv("MODEL_PATH", "/models/.model_path")
+        model_path_file = Path(self.model_path)
+        if self.model_path.endswith(".model_path") and model_path_file.exists():
+            resolved_model_path = model_path_file.read_text().strip()
+            if resolved_model_path:
+                log.info("Resolved MODEL_PATH file %s -> %s", self.model_path, resolved_model_path)
+                self.model_path = resolved_model_path
         self.storage_dir = Path(os.getenv("STORAGE_DIR", "/storage"))
         self.crop_dir = self.storage_dir / "crops"
         self.crop_dir.mkdir(parents=True, exist_ok=True)

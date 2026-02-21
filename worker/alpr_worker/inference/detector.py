@@ -1,5 +1,6 @@
 import os
 import uuid
+import logging
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
@@ -21,6 +22,7 @@ class PlateDetector:
     """
     def __init__(self):
         self.model_path = os.getenv("MODEL_PATH", "").strip()
+        self.log = logging.getLogger(__name__)
         self.storage_dir = Path(os.getenv("STORAGE_DIR", "/storage"))
         self.crop_dir = self.storage_dir / "crops"
         self.crop_dir.mkdir(parents=True, exist_ok=True)
@@ -30,17 +32,36 @@ class PlateDetector:
         self.imgsz = int(os.getenv("DETECTOR_IMGSZ", "640"))
         self.class_id = int(os.getenv("DETECTOR_CLASS_ID", "0"))
 
+        preferred_fallbacks = ["/models/best.engine", "/models/best.pt", "/models/best.onnx"]
+
+        if self.model_path.endswith(".model_path") and Path(self.model_path).exists():
+            resolved_model_path = Path(self.model_path).read_text().strip()
+            if resolved_model_path:
+                self.log.info("Resolved MODEL_PATH file %s -> %s", self.model_path, resolved_model_path)
+                self.model_path = resolved_model_path
+
         if not self.model_path:
             # Try to find model automatically
-            for fallback in ["/models/best.engine", "/models/best.pt"]:
+            for fallback in preferred_fallbacks:
                 if Path(fallback).exists():
                     self.model_path = fallback
                     break
             if not self.model_path:
-                raise RuntimeError("MODEL_PATH is empty and no model found at /models/best.engine or /models/best.pt")
-
-        if not Path(self.model_path).exists():
-            raise RuntimeError(f"MODEL_PATH not found: {self.model_path}. Available: check /models directory")
+                raise RuntimeError(
+                    "MODEL_PATH is empty and no model found at /models/best.engine, /models/best.pt, or /models/best.onnx"
+                )
+        elif not Path(self.model_path).exists():
+            for fallback in preferred_fallbacks:
+                if Path(fallback).exists():
+                    self.log.warning(
+                        "Configured MODEL_PATH not found: %s. Falling back to %s",
+                        self.model_path,
+                        fallback,
+                    )
+                    self.model_path = fallback
+                    break
+            else:
+                raise RuntimeError(f"MODEL_PATH not found: {self.model_path}. Available: check /models directory")
 
         # Import YOLO once (fast and stable)
         from ultralytics import YOLO

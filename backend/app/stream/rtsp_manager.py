@@ -59,15 +59,16 @@ if USE_TRT_VEHICLE_DETECTOR:
         from worker.alpr_worker.inference.trt.yolov8_trt_detector import YOLOv8TRTPlateDetector
         
         class VehicleDetector:
-            """TensorRT vehicle detector wrapper (uses models/vehicles.engine)"""
+            """TensorRT vehicle detector wrapper (uses VEHICLE_MODEL_PATH)"""
             def __init__(self):
                 # Override MODEL_PATH temporarily for vehicle detection
-                original_model_path = os.getenv("MODEL_PATH")
-                os.environ["MODEL_PATH"] = "/models/vehicles.engine"
+                vehicle_model_path = os.getenv("VEHICLE_MODEL_PATH", "/models/.vehicle_model_path")
+                os.environ["MODEL_PATH"] = vehicle_model_path
                 
                 try:
                     self.detector = YOLOv8TRTPlateDetector()
                     log.info("VehicleDetector initialized with TensorRT: /models/vehicles.engine")
+                    log.info("VehicleDetector initialized with TensorRT: %s", os.environ.get("MODEL_PATH"))
                 finally:
                     # Restore original MODEL_PATH
                     if original_model_path:
