@@ -31,28 +31,37 @@ class MJPEGServer:
         """Stream MJPEG for a camera"""
         camera_id = request.match_info['camera_id']
         
-        response = web.StreamResponse()
-        response.content_type = 'multipart/x-mixed-replace; boundary=frame'
-        await response.prepare(request)
-        
-        log.info(f"Client connected to stream: {camera_id}")
-        
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Connection': 'keep-alive',
+            },
+        )
+       
         try:
+            await response.prepare(request)
+            log.info(f"Client connected to stream: {camera_id}")
+
             while True:
                 if camera_id in self.frames:
                     frame_bytes = self.frames[camera_id]
                     
                     await response.write(
                         b'--frame\r\n'
-                        b'Content-Type: image/jpeg\r\n\r\n' + 
-                        frame_bytes + 
-                        b'\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n'
+                        + frame_bytes
+                        + b'\r\n'
                     )
                 
                 await asyncio.sleep(0.033)  # ~30 FPS max
         
         except asyncio.CancelledError:
             log.info(f"Client disconnected from stream: {camera_id}")
+        except ConnectionResetError:
+            log.info(f"Stream connection reset by client: {camera_id}")
         except Exception as e:
             log.error(f"Stream error for {camera_id}: {e}")
         finally:
