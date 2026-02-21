@@ -232,6 +232,7 @@ class RTSPStreamManager:
         self.tracking_engines: Dict[str, LPRTrackingEngine] = {}
         
         self.last_stats_flush: Dict[str, datetime] = {}
+        self.last_track_flush_at: Dict[str, float] = {}
         
         log.info("RTSPStreamManager initialized for %d cameras", len(self.cameras))
         log.info("Count line: %s", self.count_line)
@@ -367,6 +368,7 @@ class RTSPStreamManager:
                 
                 # 4) Flush stats periodically
                 self._flush_stats_if_needed(camera_id, timestamp, tracker)
+                self._flush_tracks_if_needed(camera_id, tracker)
             
             except Exception as e:
                 log.exception("Tracking pipeline failed for %s: %s", camera_id, e)
@@ -453,7 +455,87 @@ class RTSPStreamManager:
             log.error("Failed to flush stats for %s: %s", camera_id, e)
         finally:
             db.close()
-    
+
+
+    def _flush_tracks_if_needed(
+        self,
+        camera_id: str,
+        tracker: LPRTrackingEngine,
+    ):
+        """Persist active tracker states so Live Monitoring can show real-time tracks."""
+        now_monotonic = time.monotonic()
+        prev = self.last_track_flush_at.get(camera_id)
+        if prev and (now_monotonic - prev) < 1:
+            return
+
+        ts = datetime.utcnow()
+
+        active_states = {
+            track_id: state
+            for track_id, state in tracker.track_states.items()
+            if state.time_since_update == 0
+        }
+        if not active_states:
+            self.last_track_flush_at[camera_id] = now_monotonic
+            return
+
+        db = SessionLocal()
+        try:
+            track_ids = list(active_states.keys())
+            existing_tracks = db.execute(
+                select(VehicleTrack).where(
+                    and_(
+                        VehicleTrack.camera_id == camera_id,
+                        VehicleTrack.track_id.in_(track_ids),
+                    )
+                )
+            ).scalars().all()
+
+            existing_by_track_id = {item.track_id: item for item in existing_tracks}
+
+            for track_id, state in active_states.items():
+                x1, y1, x2, y2 = state.bbox
+                payload = {
+                    "x1": int(x1),
+                    "y1": int(y1),
+                    "x2": int(x2),
+                    "y2": int(y2),
+                }
+
+                vehicle_track = existing_by_track_id.get(track_id)
+                if vehicle_track is None:
+                    vehicle_track = VehicleTrack(
+                        camera_id=camera_id,
+                        track_id=track_id,
+                        vehicle_type=VehicleType.UNKNOWN,
+                        entered_zone=state.crossed_line,
+                        entered_zone_at=ts if state.crossed_line else None,
+                        lpr_triggered=state.crossed_line,
+                        lpr_triggered_at=ts if state.crossed_line else None,
+                        bbox=payload,
+                        first_seen=ts,
+                        last_seen=ts,
+                    )
+                    db.add(vehicle_track)
+                    continue
+
+                crossed_now = state.crossed_line and not vehicle_track.entered_zone
+                vehicle_track.entered_zone = state.crossed_line
+                vehicle_track.lpr_triggered = state.crossed_line
+                if crossed_now:
+                    vehicle_track.entered_zone_at = ts
+                    vehicle_track.lpr_triggered_at = ts
+                vehicle_track.bbox = payload
+                vehicle_track.last_seen = ts
+
+            db.commit()
+            self.last_track_flush_at[camera_id] = now_monotonic
+        except Exception as e:
+            db.rollback()
+            log.error("Failed to flush active tracks for %s: %s", camera_id, e)
+        finally:
+            db.close()
+            
     def get_latest_frame(self, camera_id: str) -> Optional[StreamFrame]:
         """Get latest frame from queue"""
         if camera_id not in self.frame_queues:
