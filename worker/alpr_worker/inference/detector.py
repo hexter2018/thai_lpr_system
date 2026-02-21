@@ -21,6 +21,9 @@ class PlateDetector:
     - ULTRALYTICS_AUTOINSTALL must be "false" in production
     """
     def __init__(self):
+        # Prevent Ultralytics from trying runtime package installs inside containers.
+        os.environ.setdefault("ULTRALYTICS_AUTOINSTALL", "false")
+
         self.model_path = os.getenv("MODEL_PATH", "").strip()
         self.log = logging.getLogger(__name__)
         self.storage_dir = Path(os.getenv("STORAGE_DIR", "/storage"))
@@ -62,6 +65,28 @@ class PlateDetector:
                     break
             else:
                 raise RuntimeError(f"MODEL_PATH not found: {self.model_path}. Available: check /models directory")
+
+        # If TensorRT python bindings are not available, don't pass .engine into
+        # Ultralytics because it triggers requirements auto-update attempts.
+        if self.model_path.endswith(".engine"):
+            try:
+                import tensorrt  # type: ignore  # noqa: F401
+            except ImportError:
+                non_trt_fallbacks = ["/models/best.pt", "/models/best.onnx"]
+                for fallback in non_trt_fallbacks:
+                    if Path(fallback).exists():
+                        self.log.warning(
+                            "TensorRT python module unavailable; falling back from %s to %s",
+                            self.model_path,
+                            fallback,
+                        )
+                        self.model_path = fallback
+                        break
+                else:
+                    raise RuntimeError(
+                        "MODEL_PATH points to TensorRT engine but tensorrt module is unavailable, "
+                        "and no /models/best.pt or /models/best.onnx fallback exists"
+                    )
 
         # Import YOLO once (fast and stable)
         from ultralytics import YOLO

@@ -30,6 +30,7 @@ celery_app.conf.update(
     # ✅ Retry settings
     task_acks_late=True,  # Acknowledge task หลังทำเสร็จ (ถ้า crash จะได้ retry)
     task_reject_on_worker_lost=True,
+    broker_connection_retry_on_startup=True,
     
     # ✅ Result backend settings
     result_expires=3600,  # เก็บ result 1 ชั่วโมง
