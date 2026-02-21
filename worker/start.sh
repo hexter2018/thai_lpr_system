@@ -89,8 +89,23 @@ ensure_engine_model() {
     local onnx_path="$3"
     local output_path_file="$4"
 
+    local cached_engine_path=""
+
     if [ "${USE_TRT_DETECTOR:-false}" != "true" ]; then
         return 0
+    fi
+
+    if [ -f "$output_path_file" ]; then
+        cached_engine_path="$(cat "$output_path_file" 2>/dev/null || true)"
+        if [ -n "$cached_engine_path" ] && [ -f "$cached_engine_path" ]; then
+            echo "[worker] ✓ Using cached ${model_name} engine from ${output_path_file}: $cached_engine_path"
+            if [ "$model_name" = "plate" ]; then
+                export MODEL_PATH="$cached_engine_path"
+            else
+                export VEHICLE_MODEL_PATH="$cached_engine_path"
+            fi
+            return 0
+        fi
     fi
 
     if [ ! -f "$pt_path" ] && [ ! -f "$onnx_path" ]; then
