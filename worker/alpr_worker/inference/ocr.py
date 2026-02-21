@@ -13,6 +13,7 @@ import cv2
 import easyocr
 import numpy as np
 import torch
+from PIL import Image
 
 from .provinces import match_province, normalize_province, province_candidates
 from .postprocess_thai_plate import (
@@ -24,6 +25,10 @@ from .postprocess_thai_plate import (
 from .validate import is_valid_plate
 
 log = logging.getLogger(__name__)
+
+# Pillow >= 10 removed Image.ANTIALIAS, but easyocr still references it.
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 _THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 _THAI_ALLOWLIST = "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮะาำิีึืุูเแโใไั่้๊๋์ฯ0123456789"
