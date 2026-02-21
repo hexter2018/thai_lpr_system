@@ -141,7 +141,10 @@ if USE_TRT_VEHICLE_DETECTOR:
         log.info("Using TensorRT for vehicle detection")
     
     except ImportError as e:
-        log.warning("TensorRT not available for vehicle detection, using fallback: %s", e)
+        log.info(
+            "TensorRT not available for vehicle detection; using background-subtraction fallback: %s",
+            e,
+        )
         USE_TRT_VEHICLE_DETECTOR = False
 
 

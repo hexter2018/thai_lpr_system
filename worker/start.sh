@@ -130,18 +130,26 @@ ensure_engine_model "vehicle" \
 
 resolve_model_path() {
     local configured_path="$1"
+    shift || true
     if [ -z "$configured_path" ]; then
-        return 0
+        configured_path=""
     fi
 
     if [[ "$(basename "$configured_path")" == .*model_path ]] && [ -f "$configured_path" ]; then
         local resolved_path
         resolved_path="$(cat "$configured_path" 2>/dev/null)"
-        if [ -n "$resolved_path" ]; then
+        if [ -n "$resolved_path" ] && [ -f "$resolved_path" ]; then
             echo "$resolved_path"
             return 0
         fi
     fi
+
+    for candidate_path in "$@"; do
+        if [ -n "$candidate_path" ] && [ -f "$candidate_path" ]; then
+            echo "$candidate_path"
+            return 0
+        fi
+    done
 
     echo "$configured_path"
 }
@@ -149,7 +157,15 @@ resolve_model_path() {
 # ==================== Model Configuration ====================
 echo "[worker] === Model Configuration ==="
 resolved_plate_model="$(resolve_model_path "${MODEL_PATH:-/models/.model_path}")"
-resolved_vehicle_model="$(resolve_model_path "${VEHICLE_MODEL_PATH:-/models/.vehicle_model_path}")"
+resolved_vehicle_model="$(resolve_model_path \
+    "${VEHICLE_MODEL_PATH:-/models/.vehicle_model_path}" \
+    "${MODELS_DIR:-/models}/vehicles.engine" \
+    "${MODELS_DIR:-/models}/vehicles.onnx" \
+    "${MODELS_DIR:-/models}/vehicles.pt")"
+
+if [ "$resolved_vehicle_model" != "${VEHICLE_MODEL_PATH:-/models/.vehicle_model_path}" ]; then
+    export VEHICLE_MODEL_PATH="$resolved_vehicle_model"
+fi
 echo "[worker] Plate Detection: ${resolved_plate_model:-N/A}"
 echo "[worker] Vehicle Detection: ${resolved_vehicle_model:-N/A}"
 echo "[worker] Storage Directory: ${STORAGE_DIR:-/storage}"
