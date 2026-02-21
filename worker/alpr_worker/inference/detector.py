@@ -90,9 +90,36 @@ class PlateDetector:
 
         # Import YOLO once (fast and stable)
         from ultralytics import YOLO
+        self._yolo_cls = YOLO
 
         # IMPORTANT: Specify task explicitly
-        self.yolo = YOLO(self.model_path, task="detect")
+        self.yolo = self._load_yolo_model(self.model_path)
+
+    def _find_non_engine_fallback(self) -> Optional[str]:
+        for fallback in ["/models/best.pt", "/models/best.onnx"]:
+            if Path(fallback).exists():
+                return fallback
+        return None
+
+    def _load_yolo_model(self, model_path: str):
+        try:
+            return self._yolo_cls(model_path, task="detect")
+        except Exception as e:
+            # TensorRT engines can fail to deserialize if runtime version differs.
+            # Gracefully fall back to .pt/.onnx when available.
+            if model_path.endswith(".engine"):
+                fallback = self._find_non_engine_fallback()
+                if fallback:
+                    self.log.warning(
+                        "Failed to load TensorRT engine %s (%s). Falling back to %s",
+                        model_path,
+                        e,
+                        fallback,
+                    )
+                    self.model_path = fallback
+                    return self._yolo_cls(fallback, task="detect")
+            raise
+
 
     def detect_and_crop(self, image_path: str) -> DetectionResult:
         img_path = Path(image_path)
@@ -103,15 +130,40 @@ class PlateDetector:
         fallback_conf = max(0.15, self.conf * 0.5)
 
         # Run prediction (works for .engine and .pt)
-        results = self.yolo.predict(
-            source=str(img_path),
-            imgsz=self.imgsz,
-            conf=self.conf,
-            iou=self.iou,
-            classes=[self.class_id],
-            verbose=False,
-            device=0,  # change if needed
-        )
+        try:
+            results = self.yolo.predict(
+                source=str(img_path),
+                imgsz=self.imgsz,
+                conf=self.conf,
+                iou=self.iou,
+                classes=[self.class_id],
+                verbose=False,
+                device=0,  # change if needed
+            )
+        except Exception as e:
+            if self.model_path.endswith(".engine"):
+                fallback = self._find_non_engine_fallback()
+                if fallback:
+                    self.log.warning(
+                        "TensorRT inference failed using %s (%s). Retrying with %s",
+                        self.model_path,
+                        e,
+                        fallback,
+                    )
+                    self.yolo = self._load_yolo_model(fallback)
+                    results = self.yolo.predict(
+                        source=str(img_path),
+                        imgsz=self.imgsz,
+                        conf=self.conf,
+                        iou=self.iou,
+                        classes=[self.class_id],
+                        verbose=False,
+                        device=0,
+                    )
+                else:
+                    raise
+            else:
+                raise
 
         if not results or results[0] is None:
             raise RuntimeError("No YOLO results returned")
