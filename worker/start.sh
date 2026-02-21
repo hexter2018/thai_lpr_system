@@ -134,7 +134,7 @@ resolve_model_path() {
         return 0
     fi
 
-    if [[ "$configured_path" == *.model_path ]] && [ -f "$configured_path" ]; then
+    if [[ "$(basename "$configured_path")" == .*model_path ]] && [ -f "$configured_path" ]; then
         local resolved_path
         resolved_path="$(cat "$configured_path" 2>/dev/null)"
         if [ -n "$resolved_path" ]; then

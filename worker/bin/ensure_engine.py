@@ -47,9 +47,20 @@ def ensure_onnx(pt_path: Path, onnx_path: Path, imgsz: int) -> None:
     # Use ultralytics python API
     from ultralytics import YOLO  # type: ignore
 
-    model = YOLO(str(pt_path), task="detect")
-    # export to the same /models dir
-    model.export(format="onnx", imgsz=imgsz, opset=12, simplify=True)
+    try:
+        model = YOLO(str(pt_path), task="detect")
+        # export to the same /models dir
+        model.export(format="onnx", imgsz=imgsz, opset=12, simplify=True)
+    except Exception as exc:
+        msg = str(exc)
+        if "C3k2" in msg:
+            raise RuntimeError(
+                "ONNX export failed because this .pt model requires a newer Ultralytics package "
+                "(missing module: C3k2). Upgrade ultralytics in the worker image, then retry. "
+                f"Original error: {exc}"
+            ) from exc
+        raise
+
     # ultralytics exports beside pt by default; locate generated onnx
     exported = pt_path.with_suffix(".onnx")
     if exported.exists() and exported != onnx_path:

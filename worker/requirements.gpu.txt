@@ -18,7 +18,7 @@ torchvision==0.16.2+cu121
 --extra-index-url https://pypi.nvidia.com
 
 # YOLO/TensorRT
-ultralytics==8.1.0
+ultralytics>=8.3.0,<9
 tensorrt_bindings==8.6.1
 tensorrt_libs==8.6.1
 

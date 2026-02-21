@@ -54,6 +54,23 @@ log = logging.getLogger(__name__)
 # =============================================
 USE_TRT_VEHICLE_DETECTOR = os.getenv("USE_TRT_VEHICLE_DETECTOR", "true").lower() == "true"
 
+def _resolve_model_path(configured_path: str) -> str:
+    """Resolve .model_path/.vehicle_model_path indirection files to actual model path."""
+    if not configured_path:
+        return configured_path
+
+    path_obj = Path(configured_path)
+    if path_obj.name.startswith(".") and path_obj.name.endswith("model_path") and path_obj.exists():
+        try:
+            resolved = path_obj.read_text(encoding="utf-8").strip()
+            if resolved:
+                return resolved
+        except OSError:
+            pass
+
+    return configured_path
+
+
 if USE_TRT_VEHICLE_DETECTOR:
     try:
         from worker.alpr_worker.inference.trt.yolov8_trt_detector import YOLOv8TRTPlateDetector
@@ -62,8 +79,10 @@ if USE_TRT_VEHICLE_DETECTOR:
             """TensorRT vehicle detector wrapper (uses VEHICLE_MODEL_PATH)"""
             def __init__(self):
                 # Override MODEL_PATH temporarily for vehicle detection
-                vehicle_model_path = os.getenv("VEHICLE_MODEL_PATH", "/models/.vehicle_model_path")
-                os.environ["MODEL_PATH"] = vehicle_model_path
+                original_model_path = os.getenv("MODEL_PATH")
+                vehicle_model_path = _resolve_model_path(
+                    os.getenv("VEHICLE_MODEL_PATH", "/models/.vehicle_model_path")
+                )
                 
                 try:
                     self.detector = YOLOv8TRTPlateDetector()
