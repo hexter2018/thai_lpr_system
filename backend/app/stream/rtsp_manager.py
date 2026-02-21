@@ -25,6 +25,7 @@ from sqlalchemy import and_, select
 from ..core.config import settings
 from ..db.models import Camera, VehicleTrack, CameraStats, CameraStatus, VehicleType, Capture
 from ..db.session import SessionLocal
+from ..services.queue import celery as celery_client
 
 try:
     from worker.tracking.bytetrack_engine import LPRTrackingEngine, Detection
@@ -44,15 +45,6 @@ except ImportError:
 
     from worker.tracking.bytetrack_engine import LPRTrackingEngine, Detection
 
-try:
-     from alpr_worker.tasks import process_lpr_task
-except ImportError:
-    try:
-        from worker.alpr_worker.tasks import process_lpr_task
-    except ImportError:
-        process_lpr_task = None
-        log = logging.getLogger(__name__)
-        log.warning("LPR Celery task import failed; LPR dispatch will be retried lazily")   
 
 log = logging.getLogger(__name__)
 
@@ -371,17 +363,6 @@ class RTSPStreamManager:
     ):
         """Dispatch LPR processing task to Celery worker"""
         try:
-
-            global process_lpr_task
-
-            if process_lpr_task is None:
-                try:
-                    from alpr_worker.tasks import process_lpr_task as imported_task
-                except ImportError:
-                    from worker.alpr_worker.tasks import process_lpr_task as imported_task
-                process_lpr_task = imported_task
-
-
             # Encode vehicle crop to Base64
             ok, encoded = cv2.imencode('.jpg', vehicle_crop, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
             if not ok:
@@ -393,12 +374,16 @@ class RTSPStreamManager:
             
             vehicle_crop_b64 = base64.b64encode(encoded.tobytes()).decode('utf-8')
             
-            # Send to Celery
-            process_lpr_task.delay(
-                vehicle_crop_b64=vehicle_crop_b64,
-                track_id=track_id,
-                vehicle_count=vehicle_count,
-                camera_id=camera_id,
+            # Send to Celery worker by task name so stream-manager does not import OCR runtime deps.
+            celery_client.send_task(
+                "tasks.process_lpr_task",
+                kwargs={
+                    "vehicle_crop_b64": vehicle_crop_b64,
+                    "track_id": track_id,
+                    "vehicle_count": vehicle_count,
+                    "camera_id": camera_id,
+                },
+                queue="lpr",
             )
             
             log.info(
