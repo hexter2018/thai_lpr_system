@@ -12,7 +12,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/stream': {
-        target: 'http://localhost:8090',
+        target: 'http://stream-manager:8090',
         changeOrigin: true,
       },
     },
