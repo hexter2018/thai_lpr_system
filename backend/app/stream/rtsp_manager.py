@@ -233,6 +233,14 @@ class RTSPStreamManager:
         
         self.last_stats_flush: Dict[str, datetime] = {}
         self.last_track_flush_at: Dict[str, float] = {}
+
+        # Trigger cooldown per (camera_id, track_id) to prevent repeated dispatches.
+        self.track_trigger_ttl_sec = int(os.getenv("TRACK_TRIGGER_TTL_SEC", "300"))
+        self.track_trigger_history: Dict[Tuple[str, int], float] = {}
+        self.track_trigger_cleanup_interval_sec = int(
+            os.getenv("TRACK_TRIGGER_CLEANUP_INTERVAL_SEC", "30")
+        )
+        self._last_track_trigger_cleanup_at = time.monotonic()
         
         log.info("RTSPStreamManager initialized for %d cameras", len(self.cameras))
         log.info("Count line: %s", self.count_line)
@@ -257,8 +265,9 @@ class RTSPStreamManager:
         # Initialize tracking engine for this camera
         self.tracking_engines[camera_id] = LPRTrackingEngine(
             count_line=self.count_line,
-            track_thresh=0.45,
-            track_buffer=30,
+            track_thresh=0.40,
+            track_buffer=75,
+            match_thresh=0.75,
             trajectory_maxlen=30,
         )
         
@@ -359,12 +368,22 @@ class RTSPStreamManager:
                 
                 # 3) Process LPR triggers
                 for event in trigger_ocr_list:
+                    if self._is_track_trigger_on_cooldown(camera_id, event.track_id):
+                        log.debug(
+                            "Track trigger suppressed by cooldown: camera=%s track_id=%d",
+                            camera_id,
+                            event.track_id,
+                        )
+                        continue
+
                     self._dispatch_lpr_task(
                         camera_id=camera_id,
                         track_id=event.track_id,
                         vehicle_count=event.count_id,
                         vehicle_crop=event.vehicle_crop,
                     )
+
+                self._cleanup_expired_track_triggers_if_needed()
                 
                 # 4) Flush stats periodically
                 self._flush_stats_if_needed(camera_id, timestamp, tracker)
@@ -378,6 +397,32 @@ class RTSPStreamManager:
             # FPS throttle
             if frame_delay > 0:
                 time.sleep(frame_delay)
+
+    def _is_track_trigger_on_cooldown(self, camera_id: str, track_id: int) -> bool:
+        """Return True when a track has triggered recently; otherwise register new trigger."""
+        now = time.monotonic()
+        key = (camera_id, track_id)
+        last_trigger = self.track_trigger_history.get(key)
+        if last_trigger is not None and (now - last_trigger) < self.track_trigger_ttl_sec:
+            return True
+
+        self.track_trigger_history[key] = now
+        return False
+
+    def _cleanup_expired_track_triggers_if_needed(self):
+        """Prune old trigger IDs to avoid unbounded memory growth."""
+        now = time.monotonic()
+        if (now - self._last_track_trigger_cleanup_at) < self.track_trigger_cleanup_interval_sec:
+            return
+
+        self._last_track_trigger_cleanup_at = now
+        expired_keys = [
+            key
+            for key, ts in self.track_trigger_history.items()
+            if (now - ts) >= self.track_trigger_ttl_sec
+        ]
+        for key in expired_keys:
+            self.track_trigger_history.pop(key, None)
     
     def _dispatch_lpr_task(
         self,

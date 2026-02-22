@@ -95,9 +95,9 @@ class LPRTrackingEngine:
     def __init__(
         self,
         count_line: List[Tuple[int, int]],
-        track_thresh: float = 0.45,
-        track_buffer: int = 30,
-        match_thresh: float = 0.80,
+        track_thresh: float = 0.40,
+        track_buffer: int = 75,
+        match_thresh: float = 0.75,
         trajectory_maxlen: int = 30,
     ):
         """
@@ -107,7 +107,7 @@ class LPRTrackingEngine:
             count_line: Virtual line as [(x1, y1), (x2, y2)]
             track_thresh: Detection confidence threshold for tracking
             track_buffer: Number of frames to keep lost tracks
-            match_thresh: IoU threshold for track matching
+            match_thresh: Matching threshold for track association
             trajectory_maxlen: Maximum trajectory points to store
         """
         if len(count_line) != 2:
